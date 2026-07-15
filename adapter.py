@@ -941,6 +941,99 @@ class MaxAdapter(BasePlatformAdapter):
         flush()
         return chunks or [content[:limit]]
 
+    @staticmethod
+    def _convert_markdown_tables(text: str) -> str:
+        """Convert markdown tables to MAX-compatible pipe format with monospace.
+
+        MAX does not support markdown table rendering. This converts:
+          | Col1 | Col2 |
+          |------|------|
+          | v1   | v2   |
+        Into a monospace code block with aligned columns, which renders
+        correctly on MAX.
+        """
+        import re
+
+        # Match markdown tables: find blocks of pipe-delimited rows
+        # that contain at least one separator row (|---|).
+        # Strategy: find consecutive lines starting with |,
+        # where at least one is a separator.
+        lines = text.split('\n')
+        result_lines = []
+        i = 0
+
+        while i < len(lines):
+            line = lines[i]
+
+            # Check if this line starts a table (starts with |)
+            if re.match(r'^\|.+\|', line):
+                # Collect consecutive pipe lines
+                table_start = i
+                table_lines = []
+                has_separator = False
+                while i < len(lines) and re.match(r'^\|.+\|', lines[i]):
+                    current = lines[i]
+                    table_lines.append(current)
+                    if re.match(r'^\|[\s\-:|]+\|$', current):
+                        has_separator = True
+                    i += 1
+
+                if has_separator and len(table_lines) >= 2:
+                    # This is a table — convert it
+                    converted = MaxAdapter._render_table(table_lines)
+                    result_lines.append(converted)
+                else:
+                    # Not a valid table — keep as-is
+                    result_lines.extend(table_lines)
+            else:
+                result_lines.append(line)
+                i += 1
+
+        return '\n'.join(result_lines)
+
+    @staticmethod
+    def _render_table(lines: list) -> str:
+        """Render a list of pipe-delimited lines as a monospace table."""
+        # Parse rows (skip separator lines)
+        rows = []
+        for line in lines:
+            if not line.strip():
+                continue
+            # Skip separator rows (|---|---|)
+            if all(c in '|-: ' for c in line):
+                continue
+            cells = [c.strip() for c in line.strip('|').split('|')]
+            rows.append(cells)
+
+        if not rows:
+            return '\n'.join(lines)
+
+        # Calculate column widths (cap at 25 chars for mobile)
+        ncols = max(len(r) for r in rows) if rows else 0
+        if ncols == 0:
+            return '\n'.join(lines)
+        widths = [3] * ncols  # minimum width
+        for row in rows:
+            for i, cell in enumerate(row):
+                if i < ncols:
+                    widths[i] = max(widths[i], min(len(cell), 25))
+
+        # Build formatted table
+        sep = '-' * (sum(widths) + 3 * ncols + 1)
+
+        result = ['```']
+        result.append(sep)
+        for row in rows:
+            padded = []
+            for i in range(ncols):
+                cell = row[i] if i < len(row) else ''
+                cell = cell[:25]
+                padded.append(cell.ljust(widths[i]))
+            result.append('| ' + ' | '.join(padded) + ' |')
+        result.append(sep)
+        result.append('```')
+        return '\n'.join(result)
+
     async def send(
         self,
         chat_id: str,
@@ -962,6 +1055,9 @@ class MaxAdapter(BasePlatformAdapter):
         else:
             user_id = self._dm_user_ids.get(chat_id, target_id)
             params["user_id"] = user_id
+
+        # Convert markdown tables to MAX-compatible format
+        content = self._convert_markdown_tables(content)
 
         chunks = self._split_outbound_text(content)
         last_result: Optional[SendResult] = None
