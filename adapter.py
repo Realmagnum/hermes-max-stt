@@ -749,6 +749,33 @@ class MaxAdapter(BasePlatformAdapter):
         path = parsed.path or "/"
         return f"{parsed.scheme}://{parsed.netloc}{path}"
 
+    @staticmethod
+    def _detect_image_mime(data: bytes) -> str:
+        """Detect image MIME type from magic bytes.
+
+        More reliable than Content-Type header — MAX sometimes returns
+        application/octet-stream for images.
+        """
+        if len(data) < 12:
+            return "image/jpeg"
+        # PNG: 89 50 4E 47
+        if data[0] == 0x89 and data[1] == 0x50 and data[2] == 0x4E and data[3] == 0x47:
+            return "image/png"
+        # JPEG: FF D8 FF
+        if data[0] == 0xFF and data[1] == 0xD8 and data[2] == 0xFF:
+            return "image/jpeg"
+        # WebP: RIFF....WEBP
+        if (data[0] == 0x52 and data[1] == 0x49 and data[2] == 0x46 and data[3] == 0x46
+                and data[8] == 0x57 and data[9] == 0x45 and data[10] == 0x42 and data[11] == 0x50):
+            return "image/webp"
+        # GIF: GIF8
+        if data[0] == 0x47 and data[1] == 0x49 and data[2] == 0x46 and data[3] == 0x38:
+            return "image/gif"
+        # BMP: BM
+        if data[0] == 0x42 and data[1] == 0x4D:
+            return "image/bmp"
+        return "image/jpeg"
+
     async def _cache_audio_attachment(
         self, attachment: Dict[str, Any], kind: str
     ) -> Optional[Tuple[str, str]]:
@@ -793,8 +820,13 @@ class MaxAdapter(BasePlatformAdapter):
             return None
         content_type = str(resp.headers.get("content-type") or "").split(";", 1)[0].strip().lower()
         if not content_type or content_type == "application/octet-stream":
-            guessed, _ = mimetypes.guess_type(urlparse(url).path)
-            content_type = guessed or "image/jpeg"
+            # Try magic bytes first — more reliable than Content-Type header
+            magic_mime = self._detect_image_mime(resp.content)
+            if magic_mime.startswith("image/"):
+                content_type = magic_mime
+            else:
+                guessed, _ = mimetypes.guess_type(urlparse(url).path)
+                content_type = guessed or "image/jpeg"
         ext = mimetypes.guess_extension(content_type) if content_type else None
         if not ext:
             ext = Path(urlparse(url).path).suffix.lower() or ".jpg"
@@ -1105,9 +1137,23 @@ class MaxAdapter(BasePlatformAdapter):
         *,
         finalize: bool = False,
     ) -> SendResult:
-        """Edit an existing message — for streaming support."""
+        """Edit an existing message — for streaming support.
+
+        Throttles edits to 800ms minimum interval to avoid MAX rate limits.
+        Renews typing indicator after each edit (MAX clears it on edit).
+        """
         if not self._http_client:
             return SendResult(success=False, error="Not connected")
+
+        # Streaming throttle: minimum 800ms between edits
+        now = time.monotonic()
+        last = getattr(self, "_last_edit_at", 0.0)
+        if not finalize and last > 0 and (now - last) < 0.8:
+            return SendResult(success=True, message_id=message_id)
+        self._last_edit_at = now
+        if finalize:
+            self._last_edit_at = 0.0
+
         text = content[:MAX_MESSAGE_LENGTH - 3] + "..." if len(content) > MAX_MESSAGE_LENGTH else content
         body = {"text": text, "format": "markdown"}
         try:
@@ -1117,6 +1163,8 @@ class MaxAdapter(BasePlatformAdapter):
                 json=body,
             )
             resp.raise_for_status()
+            # MAX clears typing indicator on message edit — renew it
+            await self.send_typing(chat_id)
             return SendResult(success=True, message_id=message_id, raw_response=resp.json())
         except Exception as e:
             return SendResult(success=False, error=str(e), retryable=True)
