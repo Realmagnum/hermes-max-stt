@@ -21,6 +21,7 @@ After text."""
         result = adapter.MaxAdapter._convert_markdown_tables(text)
 
         # Should render as aligned text with pipe separators
+        assert "-------" in result
         assert "Name" in result
         assert "Value" in result
         assert "Status" in result
@@ -29,8 +30,6 @@ After text."""
         # Original text preserved
         assert "Some text before" in result
         assert "After text" in result
-        # No code fences
-        assert "```" not in result
         # Original pipe table syntax should be gone
         assert "|------|" not in result
 
@@ -54,7 +53,7 @@ Middle text.
 
         result = adapter.MaxAdapter._convert_markdown_tables(text)
 
-        # Both tables converted — each has a top and bottom separator line
+        # Both tables converted — each has top/bottom separators
         assert result.count("-------") >= 4  # 2 tables × (top + bottom)
         assert "1" in result
         assert "2" in result
@@ -62,8 +61,9 @@ Middle text.
         assert "4" in result
         assert "Middle text" in result
         assert "First table" in result
-        # No code fences
+        # No code fences or HTML tags
         assert "```" not in result
+        assert "<pre>" not in result
 
     def test_wide_columns_capped(self):
         text = """| VeryLongColumnNameThatExceeds | Short |
@@ -86,11 +86,13 @@ Middle text.
 
         result = adapter.MaxAdapter._convert_markdown_tables(text)
 
-        # Separator present (not code fence)
+        # Separator line present (not code fence or <pre>)
         assert "-------" in result
         assert "Item" in result
         assert "one" in result
         assert "two" in result
+        assert "```" not in result
+        assert "<pre>" not in result
 
     def test_markdown_formatting_in_cells(self):
         text = """| Feature | Status |
@@ -113,8 +115,10 @@ Middle text.
 
         result = adapter.MaxAdapter._convert_markdown_tables(text)
 
-        # Separator present (not code fence)
+        # Separator line present (not code fence or <pre>)
         assert "-------" in result
         assert "1" in result
         assert "3" in result
         assert "2" in result
+        assert "```" not in result
+        assert "<pre>" not in result

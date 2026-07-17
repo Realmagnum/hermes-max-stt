@@ -1107,10 +1107,9 @@ class MaxAdapter(BasePlatformAdapter):
                     widths[i] = max(widths[i], min(len(cell), 25))
 
         # Build formatted table.
-        # NOTE(MAX): MAX markdown does NOT support fenced code blocks (```).
-        # Only inline `code` is documented. Using pipes + dashes as plaintext
-        # is the safest rendering — none of these chars have special meaning
-        # in MAX's limited markdown parser.
+        # MAX does not support fenced code blocks (```) and <pre> is only
+        # listed under HTML mode. Aligned pipes + dashes render as-is in
+        # monospace in MAX — clean, reliable, no markup needed.
         sep = '-' * (sum(widths) + 3 * ncols + 1)
 
         result = [sep]
