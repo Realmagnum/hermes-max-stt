@@ -34,10 +34,10 @@ class TestHelpers:
         assert adapter._coerce_bool(True) is True
 
     def test_verify_secret_matches(self):
-        assert adapter._verify_secret(b"{}", "secret-123", "secret-123") is True
-        assert adapter._verify_secret(b"{}", "secret-123", "different") is False
-        assert adapter._verify_secret(b"{}", "", None) is True
-        assert adapter._verify_secret(b"{}", "secret-123", None) is False
+        assert adapter._verify_raw_secret(b"{}", "secret-123", "secret-123") is True
+        assert adapter._verify_raw_secret(b"{}", "secret-123", "different") is False
+        assert adapter._verify_raw_secret(b"{}", "", None) is True
+        assert adapter._verify_raw_secret(b"{}", "secret-123", None) is False
 
 
 class TestEnvEnablement:

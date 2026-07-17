@@ -67,6 +67,9 @@ DEFAULT_WEBHOOK_PATH = "/max/webhook"
 AUDIO_CACHE_DIR = Path(
     os.getenv("HERMES_HOME", str(Path.home() / ".hermes"))
 ) / "audio_cache"
+
+# Ensure cache dir exists with restricted permissions (voice messages are private)
+AUDIO_CACHE_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
 DEFAULT_STT_ENABLED = True
 
 # ── Helpers ──────────────────────────────────────────────────────────────
@@ -84,17 +87,19 @@ def _is_group(chat_id: str) -> bool:
         return False
 
 
-def _verify_secret(body: bytes, secret: str, secret_header: Optional[str]) -> bool:
+def _verify_raw_secret(body: bytes, secret: str, secret_header: Optional[str]) -> bool:
     """Constant-time comparison of webhook secret.
 
     Max sends the raw secret in X-Max-Bot-Api-Secret header (not HMAC).
+    Uses secrets.compare for timing-safe string comparison.
     """
+    import secrets
     del body  # kept for API compatibility
     if not secret:
         return True
     if not secret_header:
         return False
-    return hmac.compare_digest(str(secret), str(secret_header))
+    return secrets.compare_digest(str(secret), str(secret_header))
 
 
 def _coerce_bool(value: Any, default: bool = False) -> bool:
@@ -225,10 +230,14 @@ class MaxAdapter(BasePlatformAdapter):
             self._set_fatal_error("no_token", "MAX_BOT_TOKEN not configured", retryable=False)
             return False
 
+        # SECURITY: Do NOT follow redirects blindly — Authorization header
+        # (token) would be forwarded to any redirect target (token leak).
+        # Redirects with Authorization are disabled; if the Max API ever
+        # needs redirects, add a limited-redirects transport for known domains.
         self._http_client = httpx.AsyncClient(
             timeout=httpx.Timeout(30.0),
             headers={"Authorization": self._token},
-            follow_redirects=True,
+            follow_redirects=False,
         )
 
         # Verify token with /me
@@ -355,14 +364,14 @@ class MaxAdapter(BasePlatformAdapter):
         app = web.Application()
 
         async def health_handler(req: web.Request) -> web.Response:
-            return web.json_response({"status": "ok", "platform": "max"})
+            return web.json_response({"status": "ok"})
 
         async def webhook_handler(req: web.Request) -> web.Response:
             # Verify secret
             if secret:
                 body = await req.read()
                 sig = req.headers.get("X-Max-Bot-Api-Secret", "")
-                if not _verify_secret(body, secret, sig):
+                if not _verify_raw_secret(body, secret, sig):
                     logger.warning("MAX: webhook secret verification failed")
                     return web.Response(status=403)
                 try:
@@ -823,7 +832,7 @@ class MaxAdapter(BasePlatformAdapter):
             "Accept": "audio/*,*/*;q=0.8",
         }
         try:
-            resp = await self._http_client.get(url, headers=headers, follow_redirects=True)
+            resp = await self._http_client.get(url, headers=headers)
             resp.raise_for_status()
         except Exception as exc:
             logger.warning("MAX: failed to download %s from %s: %s", kind, self._safe_url_for_log(url), exc)
@@ -857,7 +866,7 @@ class MaxAdapter(BasePlatformAdapter):
             "Accept": "image/*,*/*;q=0.8",
         }
         try:
-            resp = await self._http_client.get(url, headers=headers, follow_redirects=True)
+            resp = await self._http_client.get(url, headers=headers)
             resp.raise_for_status()
         except Exception as exc:
             logger.warning("MAX: failed to download image from %s: %s", self._safe_url_for_log(url), exc)
@@ -895,7 +904,7 @@ class MaxAdapter(BasePlatformAdapter):
             "Accept": "application/*,text/*,*/*;q=0.8",
         }
         try:
-            resp = await self._http_client.get(url, headers=headers, follow_redirects=True)
+            resp = await self._http_client.get(url, headers=headers)
             resp.raise_for_status()
         except Exception as exc:
             logger.warning("MAX: failed to download document from %s: %s", self._safe_url_for_log(url), exc)
@@ -934,9 +943,10 @@ class MaxAdapter(BasePlatformAdapter):
                 python = str(Path(venv_path) / "bin" / "python3")
                 if not os.path.exists(python):
                     python = "python3"
+                import shlex
                 proc = await asyncio.subprocess.create_subprocess_exec(
                     python, "-c",
-                    f"from faster_whisper import WhisperModel; m=WhisperModel('base','cpu','int8'); segs,_=m.transcribe('{path}',language='ru'); [print(s.text.strip()) for s in segs]",
+                    f"from faster_whisper import WhisperModel; m=WhisperModel('base','cpu','int8'); segs,_=m.transcribe({shlex.quote(path)},language='ru'); [print(s.text.strip()) for s in segs]",
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
@@ -1179,7 +1189,7 @@ class MaxAdapter(BasePlatformAdapter):
                 )
             except Exception as exc:
                 logger.error("MAX: send failed chunk %s/%s: %s", idx, len(chunks), exc)
-                return SendResult(success=False, error=str(exc))
+                return SendResult(success=False, error="Send failed (see logs)")
 
         if len(chunks) > 1:
             logger.info("MAX: split outbound message into %s chunks for %s", len(chunks), chat_id)
@@ -1355,6 +1365,27 @@ class MaxAdapter(BasePlatformAdapter):
             data = resp.json()
             upload_url = data.get("url")
             if not upload_url:
+                return None
+
+            # SECURITY: Only upload to known Max domains (SSRF prevention).
+            # If the API returns an unexpected URL, refuse to connect.
+            parsed = urlparse(upload_url)
+            allowed_hosts = {
+                "platform-api.max.ru",
+                "cdn.max.ru",
+                "storage.max.ru",
+                "upload.max.ru",
+            }
+            if parsed.hostname and (
+                parsed.hostname in allowed_hosts
+                or parsed.hostname.endswith(".max.ru")
+            ):
+                pass  # Safe — within Max infrastructure
+            else:
+                logger.warning(
+                    "MAX: upload URL rejected (not in Max domain): %s",
+                    self._safe_url_for_log(upload_url),
+                )
                 return None
 
             # Step 2: upload file to the URL (use aiohttp for multipart)
@@ -2143,8 +2174,12 @@ def _apply_yaml_config(yaml_cfg: dict, platform_cfg: dict) -> Optional[dict]:
         else:
             env_value = str(value)
             extra[key] = value
+        # SECURITY: Do NOT mutate global os.environ from plugin code.
+        # The caller (gateway) is responsible for environment setup.
         if env_value and not os.getenv(env_name):
-            os.environ[env_name] = env_value
+            # Only set if not already present; this is a fallback bridge
+            # for legacy paths, kept for backward compatibility.
+            pass  # os.environ mutation removed — caller handles env setup
 
     return extra or None
 

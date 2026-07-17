@@ -51,7 +51,7 @@ Next steps:
    ```bash
    hermes gateway status
    curl http://localhost:8646/health
-   # Expected: {"status":"ok","platform":"max"}
+   # Expected: {"status":"ok"}
    ```
 
 ## Official Max docs

@@ -46,7 +46,7 @@ def transcribe(file_path: str, model_name: str = "base", language: str | None = 
     script = f"""
 from faster_whisper import WhisperModel
 
-model = WhisperModel('{model_name}', device='cpu', compute_type='int8')
+model = WhisperModel({shlex.quote(model_name)}, device='cpu', compute_type='int8')
 segments, info = model.transcribe({shlex.quote(file_path)}, language={language!r})
 for seg in segments:
     print(seg.text.strip())
