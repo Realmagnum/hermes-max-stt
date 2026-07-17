@@ -58,7 +58,7 @@ POLL_ERROR_DELAY = 5.0
 WEBHOOK_MAX_BODY_BYTES = 1_048_576  # 1 MB
 UPLOAD_DELAY = 2.0
 
-DEFAULT_WEBHOOK_HOST = "0.0.0.0"
+DEFAULT_WEBHOOK_HOST = "0.0.0.0"  # nosec B104 — webhook server must accept external callbacks from MAX API; protected by reverse proxy (TLS) + rate limiting + secret verification
 DEFAULT_WEBHOOK_PORT = 8646
 DEFAULT_WEBHOOK_PATH = "/max/webhook"
 
