@@ -20,15 +20,17 @@ After text."""
 
         result = adapter.MaxAdapter._convert_markdown_tables(text)
 
-        # Should contain code block
-        assert "```" in result
-        assert "foo" in result
-        assert "bar" in result
+        # Should render as aligned text with pipe separators
         assert "Name" in result
         assert "Value" in result
+        assert "Status" in result
+        assert "foo" in result
+        assert "bar" in result
         # Original text preserved
         assert "Some text before" in result
         assert "After text" in result
+        # No code fences
+        assert "```" not in result
         # Original pipe table syntax should be gone
         assert "|------|" not in result
 
@@ -52,14 +54,16 @@ Middle text.
 
         result = adapter.MaxAdapter._convert_markdown_tables(text)
 
-        # Both tables converted
-        assert result.count("```") == 4  # 2 tables × 2 fences each
+        # Both tables converted — each has a top and bottom separator line
+        assert result.count("-------") >= 4  # 2 tables × (top + bottom)
         assert "1" in result
         assert "2" in result
         assert "3" in result
         assert "4" in result
         assert "Middle text" in result
         assert "First table" in result
+        # No code fences
+        assert "```" not in result
 
     def test_wide_columns_capped(self):
         text = """| VeryLongColumnNameThatExceeds | Short |
@@ -82,7 +86,8 @@ Middle text.
 
         result = adapter.MaxAdapter._convert_markdown_tables(text)
 
-        assert "```" in result
+        # Separator present (not code fence)
+        assert "-------" in result
         assert "Item" in result
         assert "one" in result
         assert "two" in result
@@ -108,7 +113,8 @@ Middle text.
 
         result = adapter.MaxAdapter._convert_markdown_tables(text)
 
-        assert "```" in result
+        # Separator present (not code fence)
+        assert "-------" in result
         assert "1" in result
         assert "3" in result
         assert "2" in result

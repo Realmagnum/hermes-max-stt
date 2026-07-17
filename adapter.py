@@ -1106,11 +1106,14 @@ class MaxAdapter(BasePlatformAdapter):
                 if i < ncols:
                     widths[i] = max(widths[i], min(len(cell), 25))
 
-        # Build formatted table
+        # Build formatted table.
+        # NOTE(MAX): MAX markdown does NOT support fenced code blocks (```).
+        # Only inline `code` is documented. Using pipes + dashes as plaintext
+        # is the safest rendering — none of these chars have special meaning
+        # in MAX's limited markdown parser.
         sep = '-' * (sum(widths) + 3 * ncols + 1)
 
-        result = ['```']
-        result.append(sep)
+        result = [sep]
         for row in rows:
             padded = []
             for i in range(ncols):
@@ -1119,7 +1122,6 @@ class MaxAdapter(BasePlatformAdapter):
                 padded.append(cell.ljust(widths[i]))
             result.append('| ' + ' | '.join(padded) + ' |')
         result.append(sep)
-        result.append('```')
         return '\n'.join(result)
 
     async def send(
