@@ -1182,9 +1182,13 @@ class MaxAdapter(BasePlatformAdapter):
             elif "⚠" in text or "⚠️" in text:
                 text = text.replace("⚠️", "⚠").replace("⚠", "⚠").strip()
                 color = "#ea580c"  # orange-600
-            elif "⏳" in text:
-                text = text.replace("⏳", "⌛").strip()
-                color = "#ca8a04"  # yellow-700
+            elif "⏳" in text or "⌛" in text:
+                text = text.replace("⏳", "◷").replace("⌛", "◷").strip()
+                # Differentiate by context: "scheduled" → blue, else → amber
+                if "schedule" in text.lower() or "scheduled" in text.lower():
+                    color = "#3b82f6"  # blue-500
+                else:
+                    color = "#ca8a04"  # amber-600
             elif "🔴" in text:
                 text = text.replace("🔴", "●").strip()
                 color = "#dc2626"
@@ -1201,7 +1205,8 @@ class MaxAdapter(BasePlatformAdapter):
             text = text.replace("[OK]", "✓")
             text = text.replace("[ERR]", "✗")
             text = text.replace("[WARN]", "⚠")
-            text = text.replace("[WAIT]", "⌛")
+            text = text.replace("[WAIT]", "◷")
+            text = text.replace("[SCHED]", "◷")
             text = text.replace("[CRIT]", "●")
             text = text.replace("[GOOD]", "●")
             text = text.replace("[MID]", "●")
