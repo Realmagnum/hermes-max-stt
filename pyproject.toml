@@ -1,6 +1,6 @@
 [project]
 name = "hermes-max-stt"
-version = "2.1.1"
+version = "2.1.3"
 description = "Hermes Agent MAX messenger adapter with STT voice transcription"
 requires-python = ">=3.11"
 license = {text = "MIT"}

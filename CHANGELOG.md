@@ -2,6 +2,16 @@
 
 All notable changes to the hermes-max-stt plugin.
 
+## [2.1.3] — 2026-07-17
+
+### Security (audit finalization)
+
+- **MEDIUM:** Sanitized 5 remaining `error=str(e)` returns in: `edit_message`, `send_image`, `_upload_send`, `_post_interactive`, `_standalone_send` (token/URL leak prevention in outbound methods)
+- **MEDIUM:** Added per-IP rate limiting to webhook handler — 30 req/10s window, auto-cleanup at 1000+ entries
+- **MEDIUM:** Hard 5000-entry cap on `_seen_msgs` dedup dictionary (memory exhaustion prevention under DDoS)
+- **MEDIUM:** Strict validation of clarify callback `choice_idx`: `isdigit()` guard + bounds check (0–256)
+- **LOW:** Removed unused `import hmac` (superseded by `secrets.compare_digest`)
+
 ## [2.1.2] — 2026-07-17
 
 ### Added
