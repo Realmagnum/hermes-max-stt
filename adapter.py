@@ -280,7 +280,8 @@ class MaxAdapter(BasePlatformAdapter):
     async def _start_polling(self) -> bool:
         self._stop.clear()
         self._mark_connected()
-        self._poll_task = asyncio.create_task(self._poll_loop())
+        self._background_tasks.add(asyncio.create_task(self._poll_loop()))
+        self._poll_task = asyncio.create_task(self._queue_poll_loop())
         logger.info("MAX: long polling started")
         return True
 
