@@ -1,9 +1,11 @@
 # Hermes MAX STT — Platform Plugin
 
-**Proper Hermes Agent plugin** for MAX messenger (max.ru) with built-in voice transcription.
+**Hermes Agent plugin** for MAX messenger (max.ru): voice transcription, table-as-image rendering, streaming, access control.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Hermes](https://img.shields.io/badge/Hermes-Agent-8A2BE2)](https://hermes-agent.nousresearch.com/docs)
+
+---
 
 ## Features
 
@@ -11,31 +13,80 @@
 |---------|-------------|
 | 🟣 **Max Messenger** | Full gateway integration with max.ru |
 | 📡 **Dual Mode** | Long polling (`GET /updates`) + Webhook (`POST /max/webhook`) |
-| 🎤 **STT Voice** | Auto-download voice messages → local path → faster-whisper transcription |
-| 📝 **Streaming** | `edit_message` via `PUT /messages` for live token streaming |
-| ✂️ **Chunking** | Smart 4000-char message splitting preserving paragraphs |
+| 🎤 **STT Voice** | Auto-download voice messages → faster-whisper transcription |
 | 🖼️ **Tables as Images** | Render markdown tables as Pillow-generated PNGs with colored status icons |
+| 📝 **Streaming** | `edit_message` via `PUT /messages` for live token streaming |
+| ✂️ **Auto-chunking** | Smart 4000-char message splitting preserving paragraphs |
+| ⬆️ **File Upload** | Two-step upload: `POST /uploads` → PUT → token → send |
 | 🔒 **Access Control** | Per-user allowlist, group policies, webhook secret verification |
 | 📎 **Media** | Recursive attachment extraction, image/document/audio caching |
-| ⬆️ **Upload** | Two-step file upload (`POST /uploads` → PUT file → token) |
-| ⚡ **Typing** | Typing indicator for all chat types |
-| 🧪 **Tested** | pytest + pytest-asyncio test suite |
+| ⚡ **Typing Indicator** | Shows "user is typing" for all chat types |
+| 🧪 **Tested** | pytest + pytest-asyncio, **94 tests** |
 | 🔧 **Interactive Setup** | `hermes gateway setup` with prompts |
 
-## Comparison
+## Tables as Images in Action
+
+**Without** `MAX_TABLE_AS_IMAGE` (text fallback):
+```
+`-------------------------`
+`| Server   | Status     |`
+`| web-01   | ✓ Done     |`
+`| db-main  | ✗ Failed   |`
+`-------------------------`
+```
+
+**With** `MAX_TABLE_AS_IMAGE=true` (PNG image, ~30-60KB):
+
+![Example table image](https://via.placeholder.com/400x120/e2e8f0/1e293b?text=Server+|+Status+|+Load+|+IP)
+
+Each status cell gets a colored icon: ✓ green, ✗ red, ⚠ orange, ◷ amber, ▶ blue.
+
+### Use Cases
+
+| Scenario | Before | After |
+|----------|--------|-------|
+| 📊 **Monitoring dashboard** | Raw pipe text | Clean table with status icons |
+| 📋 **Task list** | Hard to read | Clear columns with priorities |
+| 🏗️ **CI/CD pipeline** | Broken layout | PNG with stages ready to share |
+| 📈 **Reports** | Collapsed columns | Well-formatted table image |
+| 👥 **Team projects** | Visual noise | Color-coded progress table |
+
+## Comparison with Upstream
 
 | | Upstream (vladimiraldushin) | This plugin |
 |---|---|---|
 | Architecture | Plugin ✅ | Plugin ✅ |
 | Long Polling | ❌ Webhook only | ✅ Both modes |
 | STT Voice | ❌ | ✅ Built-in |
-| Streaming edit | ❌ | ✅ edit_message |
-| Message dedup | ❌ | ✅ 300s window |
+| Streaming (edit_message) | ❌ | ✅ |
+| **Tables as Images (PNG)** | ❌ | ✅ **Unique** |
 | File upload | ❌ | ✅ Two-step |
 | Message chunking | ✅ | ✅ Improved |
 | Media extraction | ✅ | ✅ Extended |
-| Tests | ✅ Basic | ✅ Extended |
-| Interactive setup | ✅ | ✅ + STT option |
+| Message dedup | ❌ | ✅ 300s window |
+| Tests | ✅ Basic | ✅ 94 tests |
+| Interactive setup | ✅ | ✅ + STT + tables |
+
+## Architecture
+
+```
+┌─────────┐     Long Polling / Webhook     ┌─────────────────┐
+│  MAX    │ ──────────────────────────────→ │  MaxAdapter     │
+│  Client │                                  │  (adapter.py)   │
+│  (bot)  │ ←────────────────────────────── │     ↓           │
+└─────────┘     POST /messages (text/PNG)  │  ┌───────────┐  │
+                                            │  │ send()    │  │
+                                            │  │  ↓        │  │
+                                            │  │ tables?   │──┼── MAX_TABLE_AS_IMAGE=true
+                                            │  │  ↓   ↓    │  │    → Pillow → PNG
+                                            │  │ text PNG  │  │    → POST /uploads
+                                            │  │       │   │  │    → PUT → token
+                                            │  └───────────┘  │    → POST /messages
+                                            │  ┌───────────┐  │
+                                            │  │ STT (opt) │──┼── faster-whisper
+                                            │  └───────────┘  │
+                                            └─────────────────┘
+```
 
 ## Quick Start
 
@@ -45,18 +96,16 @@
 hermes plugins install Realmagnum/hermes-max-stt --enable
 ```
 
-### 2. Get a Max bot token
+### 2. Get a bot token
 
-1. Register at https://business.max.ru/self (requires Russian юрлицо/ИП/самозанятый)
-2. Create a bot → pass moderation
-3. Copy token from **Чат-боты → Перейти → Расширенные настройки → Настроить**
+Register at https://business.max.ru/self (requires Russian legal entity / sole proprietor).
+Create a bot → pass moderation → **Чат-боты → Перейти → Расширенные настройки → Настроить** → copy token.
 
 ### 3. Configure
 
 ```bash
 hermes gateway setup
 # Choose: Max (STT)
-# Follow the interactive prompts
 ```
 
 Or manually in `~/.hermes/.env`:
@@ -64,64 +113,20 @@ Or manually in `~/.hermes/.env`:
 ```bash
 MAX_BOT_TOKEN=your_token_here
 MAX_ALLOWED_USERS=your_max_user_id
-MAX_STT_ENABLED=true
 ```
 
-### 4. Restart
+### 4. Enable table images (optional)
 
 ```bash
-hermes gateway restart
-```
-
-### 5. Optional: STT (voice transcription)
-
-```bash
-python3 -m venv ~/.hermes/stt-venv
-~/.hermes/stt-venv/bin/pip install faster-whisper
-
-# Copy the transcription script
-cp scripts/transcribe_audio.py ~/.hermes/scripts/
-```
-
-For HTTPS webhook (production), expose port 8646 via Cloudflare Tunnel or Traefik.
-
-### 6. Optional: Tables as Images
-
-Render markdown pipe-tables as clean PNG images with colored status icons instead of monospace text.
-
-```bash
-# Install Pillow (required)
 pip install Pillow
-
-# Enable in .env
 echo 'MAX_TABLE_AS_IMAGE=true' >> ~/.hermes/.env
+```
 
-# Restart gateway
+### 5. Restart
+
+```bash
 hermes gateway restart
 ```
-
-When enabled, the adapter renders tables like:
-
-```
-`-------------------------`
-`| Server  | Status      |`
-`|---------|-------------|`
-`| web-01  | ✓ Done      |`   →  colored PNG with icons
-`| db-main | ✗ Failed    |`
-`-------------------------`
-```
-
-Supports ✅✓ ✗ ❌ ⚠ ⏳ emoji → colored Unicode symbols (✓ ✗ ⚠ ◷ ▶ ●) with green/red/orange/amber/blue text.
-
-| Symbol | Meaning | Color |
-|--------|---------|-------|
-| ✓ Done | Green `#16a34a` |
-| ✗ Failed | Red `#dc2626` |
-| ⚠ In review/warning | Orange `#ea580c` |
-| ◷ Pending | Amber `#ca8a04` |
-| ▶ Scheduled | Blue `#3b82f6` |
-
-Falls back to text rendering if Pillow is not installed.
 
 ## Configuration Reference
 
@@ -139,26 +144,55 @@ Falls back to text rendering if Pillow is not installed.
 | `MAX_TABLE_AS_IMAGE` | ❌ | `false` | Render tables as Pillow-generated PNG images |
 | `MAX_HOME_CHANNEL` | ❌ | — | Default cron/send_message target |
 
+## Table Image Symbol Reference
+
+| Input Emoji | Rendered As | Meaning | Color |
+|------------|-------------|---------|-------|
+| ✅ | ✓ | Done | `#16a34a` |
+| ❌ | ✗ | Failed / Error | `#dc2626` |
+| ⚠️ | ⚠ | In review / Warning | `#ea580c` |
+| ⏳ / ⌛ | ◷ | Pending | `#ca8a04` |
+| ⏳ + "scheduled" | ▶ | Scheduled | `#3b82f6` |
+| 🔴 | ● | Critical (red) | `#dc2626` |
+| 🟢 | ● | Good (green) | `#16a34a` |
+| 🟡 | ● | Mid (yellow) | `#ca8a04` |
+
+Auto-fallbacks to inline `` `code` `` text if Pillow is not installed.
+
 ## Troubleshooting
 
 ### Bot not responding
 
-1. Check gateway status: `hermes gateway status`
-2. Check Max /me: `curl -H "Authorization: $MAX_BOT_TOKEN" https://platform-api.max.ru/me`
-3. Verify webhook: `curl http://localhost:8646/health`
+```bash
+hermes gateway status
+curl -H "Authorization: ***" https://platform-api.max.ru/me
+curl http://localhost:8646/health
+```
+
+### Tables not rendering as images
+
+```bash
+# Check config
+grep MAX_TABLE_AS_IMAGE ~/.hermes/.env
+
+# Check Pillow
+pip list | grep Pillow
+
+# Check logs
+grep -i "table\|upload\|pillow" ~/.hermes/logs/gateway.log
+```
 
 ### SSL errors with Max API
 
-Max uses Russian MinCifry CA. For testing:
-```bash
-MAX_INSECURE_SSL=true
-```
+Max uses Russian MinCifry CA certificates. For testing: `MAX_INSECURE_SSL=true`
 
 ### Voice not transcribing
 
-1. Check `MAX_STT_ENABLED=true` in `.env`
-2. Verify venv: `~/.hermes/stt-venv/bin/pip list | grep faster-whisper`
-3. Test manually: `python3 scripts/transcribe_audio.py --latest`
+```bash
+grep MAX_STT_ENABLED ~/.hermes/.env
+~/.hermes/stt-venv/bin/pip list | grep faster-whisper
+python3 scripts/transcribe_audio.py --latest
+```
 
 ## Project Structure
 
@@ -173,24 +207,25 @@ hermes-max-stt/
 ├── skills/
 │   └── max-gateway/
 │       └── SKILL.md         # Agent skill
-├── tests/                   # pytest test suite
+├── tests/                   # pytest: 94 tests
 ├── AGENTS.md                # Instructions for AI agents
 ├── after-install.md         # Post-install guide
+├── README.md                # Russian version
 └── .github/workflows/ci.yml # CI/CD
 ```
 
-## Security
+**Note:** generated table PNGs are cached in `~/.hermes/table_images/`.
 
-This plugin follows secure-by-default practices:
+## Security
 
 | Measure | Detail |
 |---------|--------|
-| 🛡️ **SSRF Protection** | File upload URLs validated against `*.max.ru` / `*.oneme.ru` whitelist |
+| 🛡️ **SSRF Protection** | Upload URLs validated against `*.max.ru` / `*.oneme.ru` whitelist |
 | 🔐 **Token Safety** | `Authorization` header never forwarded on HTTP redirects |
 | 🔑 **Webhook Secret** | Constant-time comparison via `secrets.compare_digest` |
 | 🔊 **Voice Privacy** | Audio cache stored with `0700` permissions |
-| 🧹 **Error Sanitization** | Token/URLs stripped from error messages returned to gateway |
-| 🔍 **CI Hardening** | `bandit` SAST + `pip-audit` dependency scanning on every push |
+| 🧹 **Error Sanitization** | Tokens/URLs stripped from error messages |
+| 🔍 **CI Hardening** | `bandit` SAST + `pip-audit` on every push |
 
 Full audit and fixes: commit `e87ee64`.
 
