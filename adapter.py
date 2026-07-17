@@ -1167,28 +1167,31 @@ class MaxAdapter(BasePlatformAdapter):
             """Convert raw cell text to (display_text, color).
 
             Emoji → Unicode symbols that DejaVu Sans renders properly.
-            Status cells (✓ ✗ ⚠) get semantic colors.
-            """
-            color = None  # default text color
-            text = val.strip()
+            Status cells get semantic colors.
 
-            # Map emoji to symbols and assign colors
+            NOTE: MAX may append U+FE0F (emoji VS-16) to emoji chars.
+            Normalize by stripping variation selectors first.
+            """
+            color = None
+            text = val.strip()
+            # Strip variation selectors so "⚠️" matches as "⚠"
+            text = text.replace("\ufe0f", "").replace("\ufe0e", "")
+
+            # Map emoji → clear Unicode symbols with semantic colors
             if "✅" in text:
                 text = text.replace("✅", "✓").strip()
                 color = "#16a34a"  # green-600
             elif "❌" in text:
                 text = text.replace("❌", "✗").strip()
                 color = "#dc2626"  # red-600
-            elif "⚠" in text or "⚠️" in text:
-                text = text.replace("⚠️", "⚠").replace("⚠", "⚠").strip()
+            elif "⚠" in text:
+                text = text.replace("⚠", "⚠").strip()
                 color = "#ea580c"  # orange-600
             elif "⏳" in text or "⌛" in text:
-                text = text.replace("⏳", "◷").replace("⌛", "◷").strip()
-                # Differentiate by context: "scheduled" → blue, else → amber
-                if "schedule" in text.lower() or "scheduled" in text.lower():
-                    color = "#3b82f6"  # blue-500
-                else:
-                    color = "#ca8a04"  # amber-600
+                is_scheduled = "schedule" in text.lower()
+                text = text.replace("⏳", "▶" if is_scheduled else "◷") \
+                           .replace("⌛", "▶" if is_scheduled else "◷").strip()
+                color = "#3b82f6" if is_scheduled else "#ca8a04"
             elif "🔴" in text:
                 text = text.replace("🔴", "●").strip()
                 color = "#dc2626"
@@ -1199,17 +1202,12 @@ class MaxAdapter(BasePlatformAdapter):
                 text = text.replace("🟡", "●").strip()
                 color = "#ca8a04"
 
-            # Cleanup stray markers
-            text = text.replace("ℹ️", "").replace("ℹ", "")
-            text = text.replace("📊", "")
-            text = text.replace("[OK]", "✓")
-            text = text.replace("[ERR]", "✗")
-            text = text.replace("[WARN]", "⚠")
-            text = text.replace("[WAIT]", "◷")
-            text = text.replace("[SCHED]", "◷")
-            text = text.replace("[CRIT]", "●")
-            text = text.replace("[GOOD]", "●")
-            text = text.replace("[MID]", "●")
+            # Cleanup stray text markers
+            text = text.replace("ℹ", "").replace("📊", "")
+            text = text.replace("[OK]", "✓").replace("[ERR]", "✗")
+            text = text.replace("[WARN]", "⚠").replace("[WAIT]", "◷")
+            text = text.replace("[SCHED]", "▶")
+            text = text.replace("[CRIT]", "●").replace("[GOOD]", "●").replace("[MID]", "●")
 
             return text.strip(), color
 
