@@ -1775,8 +1775,7 @@ class MaxAdapter(BasePlatformAdapter):
             # Provider selected
             provider_slug = parts[2]
             state = self._model_picker_state.get(scoped_chat)
-            logger.info("MAX: model callback provider: slug=%s scoped_chat=%s state_found=%s keys=%s",
-                        provider_slug, scoped_chat, state is not None, list(self._model_picker_state.keys()))
+
             msg_id = state.get("msg_id", "") if state else ""
             await self._on_model_provider_selected(scoped_chat, provider_slug, msg_id)
             return None

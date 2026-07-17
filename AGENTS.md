@@ -40,13 +40,14 @@ When a user gives you this repository and asks to connect Hermes to Max:
     ~/.hermes/scripts/transcribe_audio.py /path/to/file.ogg
     ```
 
-**Important current Max API facts** (checked 2026-06-22):
-- Bot API requests use `Authorization: <token>` header; token in query parameters is no longer supported.
+**Important current Max API facts** (checked 2026-07-17):
+- Bot API requests use `Authorization: *** header; token in query parameters is no longer supported.
 - Webhook requires public HTTPS; HTTP and self-signed certificates are not supported for webhooks.
 - Webhook `secret` is sent back by Max as the raw `X-Max-Bot-Api-Secret` header value, not as an HMAC signature.
 - For production, Max recommends Webhook, not Long Polling; both cannot be used simultaneously.
 - `POST /messages` accepts `user_id` or `chat_id`; message `text` is up to 4000 characters and `format` can be `markdown` or `html`.
 - This plugin supports **both** long-polling (default, no HTTPS needed) and webhook (requires HTTPS). Long-polling is ideal for development and testing.
+- **Callback updates (`message_callback`)** contain a `message` object; the chat_id for routing lives at `message.recipient.chat_id`, NOT at `chat.chat_id` or top-level `chat_id`.
 
 **STT-specific:**
 - Voice messages from Max come as audio attachments with `payload.url` for direct download.
