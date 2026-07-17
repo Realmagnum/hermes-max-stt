@@ -1582,11 +1582,20 @@ class MaxAdapter(BasePlatformAdapter):
         if not user_id:
             return None
 
-        # Extract chat info for routing
-        chat_info = payload.get("chat", {}) or {}
-        chat_id = str(chat_info.get("chat_id", "") or payload.get("chat_id", ""))
+        # Extract chat info for routing.
+        # Max API callback payload puts chat info in message.recipient.
+        msg = payload.get("message", {})
+        recipient = msg.get("recipient", {}) if msg else {}
+        raw_chat_id = (
+            recipient.get("chat_id")
+            or (payload.get("chat", {}) or {}).get("chat_id", "")
+            or payload.get("chat_id", "")
+            or ""
+        )
+        chat_id = str(raw_chat_id)
 
-        logger.info("MAX: callback received: data=%s from user=%s", data, user_id)
+        logger.info("MAX: callback received: data=%s from user=%s chat_id=%s",
+                     data, user_id, chat_id)
 
         # Dispatch based on prefix
         parts = data.split(":", 2)
@@ -1766,6 +1775,8 @@ class MaxAdapter(BasePlatformAdapter):
             # Provider selected
             provider_slug = parts[2]
             state = self._model_picker_state.get(scoped_chat)
+            logger.info("MAX: model callback provider: slug=%s scoped_chat=%s state_found=%s keys=%s",
+                        provider_slug, scoped_chat, state is not None, list(self._model_picker_state.keys()))
             msg_id = state.get("msg_id", "") if state else ""
             await self._on_model_provider_selected(scoped_chat, provider_slug, msg_id)
             return None
