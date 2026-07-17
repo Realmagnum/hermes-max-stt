@@ -1,6 +1,7 @@
-# Hermes MAX STT — Platform Plugin
+# Hermes MAX Gateway
 
-**Hermes Agent plugin** for MAX messenger (max.ru): voice transcription, table-as-image rendering, streaming, access control.
+**Hermes Agent gateway plugin for MAX messenger (max.ru).**  
+Voice transcription (STT), interactive buttons (model picker, approval, clarify), table-as-image rendering (PNG with colored icons), streaming responses, file upload, access control.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Hermes](https://img.shields.io/badge/Hermes-Agent-8A2BE2)](https://hermes-agent.nousresearch.com/docs)
@@ -38,9 +39,9 @@
 `-------------------------`
 ```
 
-**With** `MAX_TABLE_AS_IMAGE=true` (PNG image, ~30-60KB):
+**With** `MAX_TABLE_AS_IMAGE=true` (PNG image, ~13KB):
 
-![Example table image](https://via.placeholder.com/400x120/e2e8f0/1e293b?text=Server+|+Status+|+Load+|+IP)
+![Example table image](assets/table_sample.png)
 
 Each status cell gets a colored icon: ✓ green, ✗ red, ⚠ orange, ◷ amber, ▶ blue.
 

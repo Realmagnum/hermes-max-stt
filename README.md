@@ -1,6 +1,7 @@
-# Hermes MAX STT — Плагин для MAX
+# Hermes MAX Gateway
 
-**Плагин Hermes Agent** для MAX (max.ru): голосовая транскрипция, таблицы-картинки, стриминг, контроль доступа.
+**Плагин-шлюз для подключения Hermes Agent к мессенджеру MAX.**  
+Голосовая транскрипция (STT), интерактивные кнопки (выбор модели, подтверждение команд), отрисовка таблиц в PNG-картинки с цветными иконками, стриминг ответов, загрузка файлов, контроль доступа.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Hermes](https://img.shields.io/badge/Hermes-Agent-8A2BE2)](https://hermes-agent.nousresearch.com/docs)
@@ -38,9 +39,9 @@
 `-------------------------`
 ```
 
-**С** `MAX_TABLE_AS_IMAGE=true` (PNG-картинка, ~30-60KB):
+**С** `MAX_TABLE_AS_IMAGE=true` (PNG-картинка, ~13KB):
 
-![Пример таблицы-картинки](https://via.placeholder.com/400x120/e2e8f0/1e293b?text=Server+|+Status+|+Load+|+IP)
+![Пример таблицы-картинки](assets/table_sample.png)
 
 Каждая ячейка статуса — цветной символ: ✓ зелёный, ✗ красный, ⚠ оранжевый, ◷ янтарный, ▶ синий.
 
