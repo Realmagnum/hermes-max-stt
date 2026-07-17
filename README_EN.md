@@ -55,6 +55,24 @@ Each status cell gets a colored icon: ✓ green, ✗ red, ⚠ orange, ◷ amber,
 | 📈 **Reports** | Collapsed columns | Well-formatted table image |
 | 👥 **Team projects** | Visual noise | Color-coded progress table |
 
+### Why images instead of native tables?
+
+**Telegram** supports markdown tables natively — just send `| A | B |` with `format=markdown`, and the client renders columns, borders, and alignment automatically.
+
+**MAX** does not support tables in markdown. The supported formatting is limited to `*italic*`, `**bold**`, `` `code` ``, `[links](url)`, `# headings`, `> quotes`. Pipe syntax (`| A | B |`) and fenced code blocks (`` ``` ``) are not in the supported list.
+
+We tried several approaches before settling on PNG:
+
+| Attempt | Result |
+|---------|--------|
+| `` ``` `` fenced code block | MAX doesn't support it — fences rendered as literal text |
+| `<pre>` HTML tag | Only works in HTML mode, which breaks markdown in the rest of the message |
+| inline `` `code` `` | Works as a fallback, but no borders or alignment |
+| Plain text with `\|` and `---` | Readable but looks messy without monospace |
+| **Pillow PNG** ✅ | **Full control: colors, borders, icons, fonts** |
+
+**Bottom line:** PNG images deliver what Telegram provides natively — clean tables with colored status badges. Bonus: images can be forwarded and don't depend on the client's markdown parser. Trade-off: cell text is not copyable.
+
 ## Comparison with Upstream
 
 | | Upstream (vladimiraldushin) | This plugin |
