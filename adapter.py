@@ -1143,12 +1143,11 @@ class MaxAdapter(BasePlatformAdapter):
         return '\n'.join(result)
 
     async def _render_table_as_image(self, table_lines: list) -> Optional[str]:
-        """Render pipe-delimited table lines as a PNG image and upload to MAX.
+        """Render pipe-delimited table lines as a clean PNG and upload to MAX.
 
-        Returns upload token on success, None on failure (missing Pillow,
-        upload error, etc.).
+        Returns upload token on success, None on failure.
         """
-        # Parse rows (same logic as _render_table)
+        # ── Parse rows ────────────────────────────────────────────────
         rows = []
         for line in table_lines:
             if not line.strip():
@@ -1157,19 +1156,28 @@ class MaxAdapter(BasePlatformAdapter):
                 continue
             cells = [c.strip() for c in line.strip('|').split('|')]
             rows.append(cells)
-        if not rows:
+        if not rows or not rows[0]:
             return None
 
         ncols = max(len(r) for r in rows)
         if ncols == 0:
             return None
 
-        # Column widths — measure generously (up to 40 chars for image)
-        widths = [3] * ncols
-        for row in rows:
-            for i, cell in enumerate(row):
-                if i < ncols:
-                    widths[i] = max(widths[i], min(len(cell), 40))
+        def _clean_cell(val: str) -> str:
+            """Replace emoji with plain-text markers for reliable rendering."""
+            val = val.replace("✅", "[OK]")
+            val = val.replace("❌", "[ERR]")
+            val = val.replace("⚠️", "[WARN]").replace("⚠", "[WARN]")
+            val = val.replace("⏳", "[WAIT]")
+            val = val.replace("🔴", "[CRIT]")
+            val = val.replace("🟢", "[GOOD]")
+            val = val.replace("🟡", "[MID]")
+            val = val.replace("ℹ️", "").replace("ℹ", "")
+            val = val.replace("➡️", "->").replace("➡", "->")
+            val = val.replace("📊", "")
+            return val.strip()
+
+        rows = [[_clean_cell(c) for c in row] for row in rows]
 
         try:
             from PIL import Image, ImageDraw, ImageFont
@@ -1177,120 +1185,119 @@ class MaxAdapter(BasePlatformAdapter):
             logger.warning("MAX: Pillow not installed, cannot render table as image")
             return None
 
-        # ── Layout constants ──────────────────────────────────────────
-        CELL_PAD_X = 12
-        CELL_PAD_Y = 6
-        FONT_SIZE = 13
-        HEADER_FONT_SIZE = 14
-        LINE_WIDTH = 1
-        MAX_IMG_WIDTH = 700
+        # ── Layout ────────────────────────────────────────────────────
+        CELL_PAD_X = 16
+        CELL_PAD_Y = 10
+        LINE_WIDTH = 2
+        MIN_COL_WIDTH = 60
+        FONT_SIZE = 14
+        HEADER_FONT_SIZE = 15
 
-        # Fonts (fall back to default if no DejaVu)
         try:
-            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", FONT_SIZE)
-            font_bold = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", HEADER_FONT_SIZE)
+            font = ImageFont.truetype(
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", FONT_SIZE
+            )
+            font_bold = ImageFont.truetype(
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", HEADER_FONT_SIZE
+            )
         except (IOError, OSError):
             font = ImageFont.load_default()
             font_bold = font
 
-        # Measure column widths in pixels
-        px_widths = [3] * ncols
+        # Measure cell widths in pixels
+        data_rows = rows[1:]
+        header = rows[0]
+
+        px_widths = [MIN_COL_WIDTH] * ncols
         for row in rows:
             for i, cell in enumerate(row):
-                if i < ncols:
-                    bbox = font.getbbox(cell[:40])
-                    cw = (bbox[2] - bbox[0]) + CELL_PAD_X * 2
-                    px_widths[i] = max(px_widths[i], cw)
+                if i >= ncols:
+                    continue
+                bbox = font.getbbox(cell[:40])
+                cw = (bbox[2] - bbox[0]) + CELL_PAD_X * 2
+                px_widths[i] = max(px_widths[i], cw)
 
-        # Cap at MAX_IMG_WIDTH
+        # Cap total width at 720px for mobile
         total_w = sum(px_widths) + LINE_WIDTH * (ncols + 1)
-        if total_w > MAX_IMG_WIDTH:
-            scale = MAX_IMG_WIDTH / total_w
-            px_widths = [max(20, int(w * scale)) for w in px_widths]
+        if total_w > 720:
+            scale = 720 / total_w
+            px_widths = [max(MIN_COL_WIDTH, int(w * scale)) for w in px_widths]
             total_w = sum(px_widths) + LINE_WIDTH * (ncols + 1)
 
-        # Measure row heights
-        row_h = max(CELL_PAD_Y * 2 + int(font.getbbox("Ay")[3] - font.getbbox("Ay")[1]), 20)
-        header_h = max(CELL_PAD_Y * 2 + int(font_bold.getbbox("Ay")[3] - font_bold.getbbox("Ay")[1]), 24)
-
-        data_rows = rows[1:]  # skip header row (rendered separately)
-        img_h = int(
-            LINE_WIDTH           # top border
-            + header_h           # header row
-            + LINE_WIDTH         # header separator
-            + row_h * len(data_rows)  # data rows
-            + LINE_WIDTH         # bottom border
-            + 4                  # small padding
+        # Row heights
+        row_h = int(CELL_PAD_Y * 2 + font.getbbox("Ag")[3] - font.getbbox("Ag")[1])
+        header_h = int(
+            CELL_PAD_Y * 2 + font_bold.getbbox("Ag")[3] - font_bold.getbbox("Ag")[1]
         )
+
+        img_h = int(header_h + LINE_WIDTH + row_h * len(data_rows) + LINE_WIDTH + 6)
 
         # ── Draw ──────────────────────────────────────────────────────
         img = Image.new("RGB", (total_w, img_h), "#ffffff")
         draw = ImageDraw.Draw(img)
 
-        # Colors
-        BG_HEADER = "#f0f4f8"
-        BG_ROW_EVEN = "#ffffff"
-        BG_ROW_ODD = "#f8fafc"
-        BORDER_COLOR = "#94a3b8"
-        TEXT_COLOR = "#1e293b"
-        TEXT_COLOR_HEADER = "#0f172a"
-        SEP_COLOR = "#cbd5e1"
+        # Color palette
+        HDR_BG = "#1e293b"       # slate-800
+        HDR_TEXT = "#ffffff"
+        ROW_EVEN = "#ffffff"
+        ROW_ODD = "#f1f5f9"      # slate-100
+        BORDER = "#94a3b8"       # slate-400
+        SEP = "#e2e8f0"          # slate-200
+        TEXT_COLOR = "#0f172a"   # slate-900
 
-        x = 0
         y = 0
 
-        # Draw top border
-        draw.line([(0, 0), (total_w, 0)], fill=BORDER_COLOR, width=LINE_WIDTH)
-
         # --- Header row ---
-        draw.rectangle([(0, y), (total_w, y + header_h)], fill=BG_HEADER)
+        draw.rectangle([(0, y), (total_w, y + header_h)], fill=HDR_BG)
         cx = LINE_WIDTH
         for ci in range(ncols):
-            cell_text = rows[0][ci] if ci < len(rows[0]) else ""
-            # Bold for first row (treat as header)
+            cell_text = header[ci] if ci < len(header) else ""
             draw.text(
-                (cx + CELL_PAD_X, y + CELL_PAD_Y),
+                (cx + CELL_PAD_X, y + int((header_h - font_bold.getbbox("Ag")[3]) / 2)),
                 cell_text[:40],
                 font=font_bold,
-                fill=TEXT_COLOR_HEADER,
+                fill=HDR_TEXT,
             )
+            # Vertical divider
+            draw.line([(cx, y), (cx, y + header_h)], fill=BORDER, width=LINE_WIDTH)
             cx += px_widths[ci] + LINE_WIDTH
-
+        # Right border
+        draw.line([(cx, y), (cx, y + header_h)], fill=BORDER, width=LINE_WIDTH)
         y += header_h
 
-        # Separator line below header
-        draw.line([(0, y), (total_w, y)], fill=SEP_COLOR, width=LINE_WIDTH)
+        # Header-bottom separator
+        draw.line([(0, y), (total_w, y)], fill=BORDER, width=LINE_WIDTH)
 
         # --- Data rows ---
         for ri, row in enumerate(data_rows):
-            bg = BG_ROW_EVEN if ri % 2 == 0 else BG_ROW_ODD
+            bg = ROW_EVEN if ri % 2 == 0 else ROW_ODD
             draw.rectangle([(0, y), (total_w, y + row_h)], fill=bg)
             cx = LINE_WIDTH
             for ci in range(ncols):
                 cell_text = row[ci] if ci < len(row) else ""
                 draw.text(
-                    (cx + CELL_PAD_X, y + CELL_PAD_Y),
+                    (cx + CELL_PAD_X, y + int((row_h - font.getbbox("Ag")[3]) / 2)),
                     cell_text[:40],
                     font=font,
                     fill=TEXT_COLOR,
                 )
-                # Vertical cell border
+                # Vertical divider
                 draw.line(
-                    [(cx, y), (cx, y + row_h)],
-                    fill=SEP_COLOR, width=1,
+                    [(cx, y), (cx, y + row_h)], fill=SEP, width=1,
                 )
                 cx += px_widths[ci] + LINE_WIDTH
-            # Right vertical border
-            draw.line([(cx, y), (cx, y + row_h)], fill=SEP_COLOR, width=1)
-            # Horizontal row separator
-            if ri < len(rows) - 1:
-                draw.line([(0, y + row_h), (total_w, y + row_h)], fill=SEP_COLOR, width=1)
+            # Right border
+            draw.line([(cx, y), (cx, y + row_h)], fill=BORDER, width=LINE_WIDTH)
+            if ri != len(data_rows) - 1:
+                draw.line(
+                    [(0, y + row_h), (total_w, y + row_h)], fill=SEP, width=1,
+                )
             y += row_h
 
         # Bottom border
-        draw.line([(0, y), (total_w, y)], fill=BORDER_COLOR, width=LINE_WIDTH)
+        draw.line([(0, y), (total_w, y)], fill=BORDER, width=LINE_WIDTH)
 
-        # ── Save & upload ────────────────────────────────────────────
+        # ── Save & upload ─────────────────────────────────────────────
         import hashlib
         digest = hashlib.md5(str(table_lines).encode()).hexdigest()[:12]
         out_path = self._table_image_dir / f"table_{digest}.png"
