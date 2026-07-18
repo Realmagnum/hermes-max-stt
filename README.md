@@ -239,6 +239,8 @@ hermes-max-stt/
 ├── AGENTS.md                # Инструкции для AI-агентов
 ├── after-install.md         # Пост-установка
 ├── README_EN.md             # Английская версия
+├── docs/
+│   └── webhook.md           # Архитектура вебхука
 └── .github/workflows/ci.yml # CI/CD
 ```
 
