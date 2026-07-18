@@ -261,19 +261,17 @@ Full audit and fixes: commit `e87ee64`.
 
 ## Project History
 
-This plugin went through two iterations:
+The project evolved in two stages.
 
-**v1.0 — original from-scratch development**
-The first version was written entirely from scratch for specific needs: Hermes Agent integration with MAX, voice transcription, two-step file uploads, interactive buttons, response streaming.
+**The first version** was written from scratch for a specific goal: bridging Hermes Agent with the MAX messenger. It introduced voice transcription, two-step file uploads, interactive buttons, and response streaming — features that no other MAX plugin had at the time.
 
-**v2.0 — rebased on a mature project**
-Later the [vladimiraldushin/hermes-max-platform](https://github.com/vladimiraldushin/hermes-max-platform) project was discovered — a more mature codebase with solid plugin architecture, webhooks, and tests. Instead of continuing v1.0 in isolation, the project was reworked:
+**Later**, a more mature project — [vladimiraldushin/hermes-max-platform](https://github.com/vladimiraldushin/hermes-max-platform) — came to our attention, with well-thought-out plugin architecture, webhooks, and tests. Rather than maintaining two parallel branches, we decided to rework the plugin on top of this foundation:
 
-- Architecture and subscription system (webhook/long polling) taken from upstream
-- All v1.0 features (STT, table images, buttons, streaming, file upload) ported and extended
-- New capabilities added: PNG table rendering, improved model picker, standalone sender, group policies
+- Architecture, subscriptions (webhook/long polling), update system — from upstream
+- All features from the first version (STT, table images, buttons, streaming, file uploads) — ported and extended
+- On top of that, capabilities found in neither original branch: PNG table rendering, improved model picker, standalone cron sender, group policies
 
-**Result:** a hybrid product combining upstream's robust architecture with original v1.0 features not found in either source project alone.
+**The result** is a hybrid: a solid upstream foundation combined with unique functionality found nowhere else.
 
 ## License
 
