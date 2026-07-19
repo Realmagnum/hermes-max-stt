@@ -637,7 +637,7 @@ class MaxAdapter(BasePlatformAdapter):
             import json as _json
             try:
                 dump = _json.dumps(update, ensure_ascii=False, default=str)[:2048]
-                logger.debug("MAX: raw update payload: %s", dump)
+                logger.warning("MAX: raw update payload: %s", dump)
             except Exception:
                 pass
 
