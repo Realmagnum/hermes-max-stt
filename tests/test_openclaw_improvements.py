@@ -90,6 +90,61 @@ class TestStreamingThrottle:
         assert a._http_client.put.call_count == 1
 
     @pytest.mark.asyncio
+    async def test_rapid_edit_stores_pending_content(self):
+        """Throttled edit stores content in _pending_edit (Fix 2)."""
+        a = self._make_adapter()
+
+        # First edit goes through
+        await a.edit_message("user:42", "mid-1", "first")
+        assert getattr(a, "_pending_edit", None) is None
+
+        # Second edit — throttled, content stored
+        await a.edit_message("user:42", "mid-1", "second content")
+        assert getattr(a, "_pending_edit", None) == "second content"
+
+    @pytest.mark.asyncio
+    async def test_pending_content_cleared_on_next_edit(self):
+        """After throttle expires, _pending_edit is cleared."""
+        a = self._make_adapter()
+
+        # First edit goes through
+        await a.edit_message("user:42", "mid-1", "first")
+        assert getattr(a, "_pending_edit", None) is None
+
+        # Simulate time passing beyond 200ms throttle
+        import time as _time
+        a._last_edit_at = _time.monotonic() - 1.0  # 1 second ago
+
+        # Second edit now goes through
+        await a.edit_message("user:42", "mid-1", "second")
+        # Pending should be cleared
+        assert getattr(a, "_pending_edit", None) is None
+        # HTTP call should have happened
+        assert a._http_client.put.call_count >= 2
+
+    @pytest.mark.asyncio
+    async def test_edit_message_converts_tables(self):
+        """edit_message converts pipe tables to backtick-wrapped format (Fix 1)."""
+        a = self._make_adapter()
+
+        await a.edit_message(
+            "user:42", "mid-1",
+            "table:\n| A | B |\n|---|---|\n| 1 | 2 |"
+        )
+
+        # The HTTP request should contain backtick-wrapped table, not raw pipes
+        _, kwargs = a._http_client.put.call_args
+        body = kwargs["json"]
+        text = body["text"]
+        assert "`| A " in text  # backtick-wrapped, with padding
+        assert "B   |`" in text
+        assert "`| 1 " in text
+        assert "2   |`" in text
+        assert "|---|---|" not in text  # separator should be removed
+        assert "<pre>" not in text  # no HTML tags
+        assert "```" not in text  # no code fences
+
+    @pytest.mark.asyncio
     async def test_finalize_resets_throttle(self):
         a = self._make_adapter()
 
