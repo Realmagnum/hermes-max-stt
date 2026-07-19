@@ -524,6 +524,13 @@ class MaxAdapter(BasePlatformAdapter):
         if update_type == "message_callback":
             return await self._on_callback(payload)
 
+        # Unknown update types (voice messages may arrive with a special type)
+        if update_type and update_type not in (
+            "message_created", "message_edited", "message_updated",
+            "message_callback", "bot_started", "bot_added",
+        ):
+            logger.info("MAX: unhandled update_type=%r keys=%s", update_type, list(payload.keys()))
+
         return None
 
     async def _on_message_created(self, update: dict) -> Optional[MessageEvent]:
@@ -621,8 +628,9 @@ class MaxAdapter(BasePlatformAdapter):
                 logger.warning("MAX: STT returned empty transcription")
         elif self._stt_enabled and not media_urls and not text:
             logger.warning(
-                "MAX: empty message with no media — possible undetected voice attachment. "
-                "Update keys: %s, Message keys: %s",
+                "MAX: empty message with no media — possible undetected voice. "
+                "update_type=%r Update keys: %s, Message keys: %s",
+                update.get("update_type"),
                 list(update.keys()), list(message.keys()),
             )
             # Log first 2KB of the raw update for debugging
