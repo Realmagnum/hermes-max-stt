@@ -72,6 +72,58 @@ AUDIO_CACHE_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
 DEFAULT_STT_ENABLED = True
 
 # ── Helpers ──────────────────────────────────────────────────────────────
+import json as _json
+
+
+def _safe_url_for_log(url: str) -> str:
+    """Strip credentials from URL for logging."""
+    from urllib.parse import urlparse
+    parsed = urlparse(url)
+    if parsed.password:
+        return url.replace(parsed.password, "***")
+    if parsed.username and parsed.username != parsed.hostname:
+        return url.replace(parsed.username, "***")
+    return url
+
+
+def _find_audio_url_direct(obj: Any, depth: int = 0) -> Optional[str]:
+    """Recursively search for an audio/voice download URL in a MAX update.
+
+    Searches common MAX fields: message.attachments, .voice, .audio,
+    body.attachments, and any dict containing type=voice/audio with a URL.
+    """
+    if depth > 8:
+        return None
+    if isinstance(obj, dict):
+        # Check type+url pattern (standard MAX attachment)
+        atype = str(obj.get("type", "")).lower()
+        url = obj.get("url") or obj.get("download_url") or ""
+        if atype in ("voice", "audio") and isinstance(url, str) and url.startswith("http"):
+            return url
+        # Check payload.url pattern
+        payload = obj.get("payload")
+        if isinstance(payload, dict):
+            url = payload.get("url") or payload.get("download_url") or ""
+            if isinstance(url, str) and url.startswith("http"):
+                return url
+        # Recurse into all values
+        for key in ("attachments", "voice", "audio", "message", "body", "payload"):
+            val = obj.get(key)
+            found = _find_audio_url_direct(val, depth + 1)
+            if found:
+                return found
+        for val in obj.values():
+            if isinstance(val, (dict, list)):
+                found = _find_audio_url_direct(val, depth + 1)
+                if found:
+                    return found
+    elif isinstance(obj, list):
+        for item in obj:
+            found = _find_audio_url_direct(item, depth + 1)
+            if found:
+                return found
+    return None
+
 
 def _parse_list(value: str) -> List[str]:
     """Parse comma-separated string into trimmed list."""
@@ -633,13 +685,26 @@ class MaxAdapter(BasePlatformAdapter):
                 update.get("update_type"),
                 list(update.keys()), list(message.keys()),
             )
-            # Log first 2KB of the raw update for debugging
-            import json as _json
-            try:
-                dump = _json.dumps(update, ensure_ascii=False, default=str)[:2048]
-                logger.warning("MAX: raw update payload: %s", dump)
-            except Exception:
-                pass
+            # Fallback: try direct audio extraction from MAX voice format.
+            # MAX may send voice as message.attachments, message.voice, or
+            # at the update root level instead of body.attachments.
+            voice_url = _find_audio_url_direct(update)
+            if voice_url:
+                logger.info("MAX: found audio via fallback: %s", _safe_url_for_log(voice_url))
+                cached = await self._cache_audio_attachment(
+                    {"type": "voice", "payload": {"url": voice_url}}, "voice"
+                )
+                if cached:
+                    audio_path, audio_mtype = cached
+                    stt_text = await self._transcribe_media(
+                        [audio_path], [audio_mtype]
+                    )
+                    if stt_text:
+                        text = stt_text
+                        logger.info("MAX: audio auto-transcribed: %s...", stt_text[:80])
+            if not text:
+                logger.warning("MAX: raw update payload: %s",
+                    _json.dumps(update, ensure_ascii=False, default=str)[:2048])
 
         # Process basic attachments as text references (for non-recursive fallback)
         if not media_urls:
