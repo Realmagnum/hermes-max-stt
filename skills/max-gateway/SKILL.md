@@ -101,9 +101,15 @@ Options: `--model tiny|base|small`, `--language ru|auto`
 
 ## Pitfalls (general)
 
-- Use `Authorization: <token>`, not query params and not `Bearer <token>`.
+- Use `Authorization: *** not query params and not `Bearer <token>`.
 - Webhook must be HTTPS with a trusted certificate.
 - If `secret` is configured, Max sends it raw in `X-Max-Bot-Api-Secret`; compare it directly with constant-time comparison.
-- Webhook and Long Polling are mutually exclusive. This plugin supports both.
+- **🚨 CRITICAL: Webhook and Long Polling are mutually exclusive.** If a webhook subscription exists in MAX API, `/updates` returns empty and ALL messages go to the webhook URL instead. Even after removing `MAX_WEBHOOK_URL` from .env and restarting, the stale subscription persists in MAX API and silently blocks message delivery.
+  - **Fix:** Delete the old subscription:
+    ```bash
+    curl -X DELETE "https://platform-api.max.ru/subscriptions?url=<URL>" -H "Authorization: $MAX_BOT_TOKEN"
+    ```
+  - **Auto-fix (v2.1.4+):** The plugin now auto-cleans stale webhook subscriptions on startup when running in long-polling mode.
+  - **Prevention:** Don't set `MAX_WEBHOOK_URL` in .env unless you have a working reverse proxy in front of port 8646. When switching modes, always clean up the old subscription first.
 - Keep tunnel/gateway running while using Max.
 - Max API requires Russian Federation jurisdiction for bot registration.

@@ -364,6 +364,55 @@ class MaxAdapter(BasePlatformAdapter):
 
     async def _start_polling(self) -> bool:
         self._stop.clear()
+
+        # ═══════════════════════════════════════════════════════════════
+        # Auto-clean stale webhook subscriptions
+        #
+        # MAX API does NOT support simultaneous webhook + long polling.
+        # If a webhook subscription exists (from a previous run or manual
+        # registration), /updates returns empty — all messages go to the
+        # webhook URL instead.
+        #
+        # We proactively delete any active webhook subscription when
+        # starting in long-polling mode so the user doesn't get stuck
+        # with a "dead" subscription pointing at an old/stale URL.
+        # ═══════════════════════════════════════════════════════════════
+        try:
+            sub_resp = await self._http_client.get(
+                f"{MAX_API_BASE}/subscriptions",
+                timeout=httpx.Timeout(5.0),
+            )
+            if sub_resp.status_code == 200:
+                data = sub_resp.json()
+                subs = data.get("subscriptions", [])
+                if subs:
+                    for sub in subs:
+                        url = sub.get("url", "")
+                        if url:
+                            logger.info(
+                                "MAX: cleaning stale webhook subscription: %s",
+                                url,
+                            )
+                            del_resp = await self._http_client.request(
+                                "DELETE",
+                                f"{MAX_API_BASE}/subscriptions?url={url}",
+                                timeout=httpx.Timeout(5.0),
+                            )
+                            if del_resp.status_code == 200:
+                                logger.info(
+                                    "MAX: stale webhook subscription deleted: %s",
+                                    url,
+                                )
+                            else:
+                                logger.warning(
+                                    "MAX: failed to delete stale subscription %s: HTTP %s",
+                                    url, del_resp.status_code,
+                                )
+        except Exception as e:
+            logger.debug(
+                "MAX: webhook cleanup skipped (non-fatal): %s", e,
+            )
+
         self._mark_connected()
         self._background_tasks.add(asyncio.create_task(self._poll_loop()))
         self._poll_task = asyncio.create_task(self._queue_poll_loop())
