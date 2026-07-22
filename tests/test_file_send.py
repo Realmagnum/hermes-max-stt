@@ -234,7 +234,7 @@ class TestStandaloneSend:
                 # Non-existent file should be skipped, text still delivered
                 result = await adapter._standalone_send(
                     pconfig, "user:42", "Text",
-                    media_files=["/nonexistent/file.pdf"],
+                    media_files=[("/nonexistent/file.pdf", False)],
                 )
                 assert result.get("success") is True
 

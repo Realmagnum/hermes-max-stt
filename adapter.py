@@ -3130,7 +3130,7 @@ async def _standalone_send(
     message: str,
     *,
     thread_id: Optional[str] = None,
-    media_files: Optional[List[str]] = None,
+    media_files: Optional[List[Tuple[str, bool]]] = None,
     force_document: bool = False,
 ) -> dict:
     """Standalone sender contract for send_message/cron delivery.
@@ -3173,7 +3173,8 @@ async def _standalone_send(
                 last_message_id = str(data.get("message", {}).get("message_id", "") or data.get("message", {}).get("body", {}).get("mid", ""))
 
             # 2. Upload and send each media file
-            for media_path in (media_files or []):
+            for media_item in (media_files or []):
+                media_path, is_voice = media_item if isinstance(media_item, (list, tuple)) else (media_item, False)
                 if not os.path.exists(media_path):
                     logger.warning("MAX: standalone media file not found: %s", media_path)
                     continue
