@@ -28,9 +28,9 @@
 | 📎 **Медиа** | Рекурсивное извлечение вложений, кэш изображений/документов/аудио |
 | 🎞️ **Голосовые/Видео/Документы** | Отдельные методы `send_voice`, `send_video`, `send_document` |
 | ⚡ **Индикатор ввода** | Отображение набора текста для всех типов чатов |
-| 🔧 **Standalone-отправитель** | Отправка сообщений из cron/send_message через `_send_max_message` |
-| 🌐 **Кросс-платформенные сессии** | `/sessions` показывает сессии со ВСЕХ платформ (CLI, Telegram, Discord, WebUI), `/resume <id>` переключается на любую. Включено по умолчанию (`MAX_CROSS_SESSION=true`) |
-| 🧪 **Тесты** | pytest + pytest-asyncio, **94 теста** |
+| 🔧 **Standalone-отправитель** | Отправка сообщений из cron/send_message через `_standalone_send` с нативной доставкой файлов. `hermes send "текст MEDIA:/file"` — работает без модификации ядра |
+| 🌐 **Кросс-платформенные сессии** | `/sessions` показывает сессии со ВСЕХ платформ, `/resume <id>` переключается на любую. Включено по умолчанию (`MAX_CROSS_SESSION=true`) |
+| 🧪 **Тесты** | pytest + pytest-asyncio, **126 тестов** |
 | 🔧 **Интерактивная настройка** | `hermes gateway setup` с подсказками |
 
 ## Пример: таблицы-картинки в деле
@@ -275,6 +275,58 @@ await adapter.send_buttons(
 
 Если Pillow не установлен — автопереключение на текстовый `` `code` `` режим.
 
+---
+
+## 📎 Нативная доставка файлов (standalone sender)
+
+Плагин умеет отправлять файлы через `hermes send` без запущенного gateway:
+
+```bash
+# Текст + файл (работает без модификации ядра)
+hermes send --to max:USER_ID "📄 Отчёт MEDIA:/path/to/report.pdf"
+
+# Несколько файлов
+hermes send --to max:USER_ID "📦 Файлы: MEDIA:/tmp/a.pdf MEDIA:/tmp/b.xlsx"
+
+# MEDIA-only (требует опционального патча ядра — см. ниже)
+```
+
+**Как это работает:**
+
+1. Core извлекает `MEDIA:`-пути → `media_files: List[Tuple[str, bool]]`
+2. Текст сообщения отправляется отдельным `POST /messages`
+3. Для каждого файла:
+    - `POST /uploads?type=file` → URL для загрузки на CDN
+    - Multipart POST на CDN → токен файла
+    - `POST /messages` с `attachments: [{"type": "file", "payload": {"token": токен}}]`
+
+Все файлы шлются как `type=file` — CDN MAX не валидирует содержимое, что гарантирует доставку любых безопасных расширений (.txt, .md, .png, .jpg, .mp3, .pdf, .doc, .xlsx и т.д.).
+
+⚠️ **Ограничение MAX CDN:** Расширения `.exe`, `.apk`, `.bat`, `.msi` и другие потенциально опасные блокируются MAX на стороне CDN (HTTP 415 — "File extension is forbidden"). Это ограничение платформы, не обходится из плагина.
+
+Для отправки файлов **внутри сессии** (через gateway) используйте `send_image_file()`, `send_document()`, `send_voice()`, `send_video()` — они используют адаптер с ретраем при `attachment.not.ready`.
+
+### Опциональное улучшение: MEDIA-only в core
+
+По умолчанию `hermes send "MEDIA:/file"` (без текста) блокируется ядром:
+
+```
+send_message MEDIA delivery is currently only supported for telegram, discord...
+```
+
+Это лечится опциональным скриптом, который добавляет MAX в список поддерживаемых платформ в `tools/send_message_tool.py`:
+
+```bash
+python3 scripts/apply-core-fix.py       # применить
+python3 scripts/apply-core-fix.py --revert  # откатить
+```
+
+После применения:
+```bash
+hermes send --to max:USER_ID "MEDIA:/tmp/image.png"     # ✅ работает
+hermes send --to max:USER_ID "текст MEDIA:/file.pdf"     # ✅ и так работало
+```
+
 ## Решение проблем
 
 ### Бот не отвечает
@@ -319,13 +371,16 @@ hermes-max-integration/
 ├── pyproject.toml           # Python-пакет
 ├── adapter.py               # MaxAdapter (~2600 строк)
 ├── scripts/
+│   ├── apply-core-fix.py      # Опциональный патч core для MEDIA-only
 │   └── transcribe_audio.py  # STT транскрипция
 ├── skills/
 │   └── max-gateway/
 │       └── SKILL.md         # Навык для AI-агента
-├── tests/                   # pytest: 94 теста
+├── tests/                   # pytest: 126 тестов
 ├── AGENTS.md                # Инструкции для AI-агентов
 ├── after-install.md         # Пост-установка
+├── cliff.toml               # git-cliff config (EN)
+├── cliff-ru.toml            # git-cliff config (RU)
 ├── README_EN.md             # Английская версия
 ├── docs/
 │   └── webhook.md           # Архитектура вебхука

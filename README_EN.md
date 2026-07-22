@@ -26,8 +26,8 @@ Voice transcription (STT), interactive buttons (model picker, approval, clarify)
 | 📎 **Media** | Recursive attachment extraction, image/document/audio caching |
 | 🎞️ **Voice/Video/Docs** | Dedicated `send_voice`, `send_video`, `send_document` methods |
 | ⚡ **Typing Indicator** | Shows "user is typing" for all chat types |
-| 🔧 **Standalone Sender** | Send messages from cron/send_message via `_send_max_message` |
-| 🧪 **Tested** | pytest + pytest-asyncio, **94 tests** |
+| 🔧 **Standalone Sender** | Cron/send_message via `_standalone_send` with native file delivery. `hermes send "text MEDIA:/file"` works without core mod |
+| 🧪 **Tested** | pytest + pytest-asyncio, **126 tests** |
 | 🔧 **Interactive Setup** | `hermes gateway setup` with prompts |
 
 ## Tables as Images in Action
@@ -189,6 +189,58 @@ hermes gateway restart
 
 Auto-fallbacks to inline `` `code` `` text if Pillow is not installed.
 
+---
+
+## 📎 Native File Delivery (standalone sender)
+
+The plugin can send files via `hermes send` without a running gateway:
+
+```bash
+# Text + file (works without core modification)
+hermes send --to max:USER_ID "📄 Report MEDIA:/path/to/report.pdf"
+
+# Multiple files
+hermes send --to max:USER_ID "📦 Files: MEDIA:/tmp/a.pdf MEDIA:/tmp/b.xlsx"
+
+# MEDIA-only (requires optional core patch — see below)
+```
+
+**How it works:**
+
+1. Core extracts `MEDIA:` paths → `media_files: List[Tuple[str, bool]]`
+2. Text is sent as a separate `POST /messages`
+3. For each file:
+    - `POST /uploads?type=file` → CDN upload URL
+    - Multipart POST to CDN → file token
+    - `POST /messages` with `attachments: [{"type": "file", "payload": {"token": token}}]`
+
+All files use `type=file` — MAX CDN does not validate content, guaranteeing delivery for any safe extension (.txt, .md, .png, .jpg, .mp3, .pdf, .doc, .xlsx, etc.).
+
+⚠️ **MAX CDN limitation:** Extensions `.exe`, `.apk`, `.bat`, `.msi` and other potentially dangerous types are rejected by MAX CDN (HTTP 415 — "File extension is forbidden"). This is a platform limitation, not addressable from the plugin.
+
+For **in-session** file delivery (via gateway), use `send_image_file()`, `send_document()`, `send_voice()`, `send_video()` — these use the adapter with retry on `attachment.not.ready`.
+
+### Optional: MEDIA-only core support
+
+By default `hermes send "MEDIA:/file"` (no text) is blocked by core:
+
+```
+send_message MEDIA delivery is currently only supported for telegram, discord...
+```
+
+Fix with the optional script that adds MAX to the supported platform list in `tools/send_message_tool.py`:
+
+```bash
+python3 scripts/apply-core-fix.py       # apply
+python3 scripts/apply-core-fix.py --revert  # revert
+```
+
+After applying:
+```bash
+hermes send --to max:USER_ID "MEDIA:/tmp/image.png"      # ✅ works
+hermes send --to max:USER_ID "text MEDIA:/file.pdf"       # ✅ already worked
+```
+
 ## Troubleshooting
 
 ### Bot not responding
@@ -233,13 +285,16 @@ hermes-max-integration/
 ├── pyproject.toml           # Python package config
 ├── adapter.py               # MaxAdapter (~2600 lines)
 ├── scripts/
+│   ├── apply-core-fix.py      # Optional core patch for MEDIA-only
 │   └── transcribe_audio.py  # STT transcription
 ├── skills/
 │   └── max-gateway/
 │       └── SKILL.md         # Agent skill
-├── tests/                   # pytest: 94 tests
+├── tests/                   # pytest: 126 tests
 ├── AGENTS.md                # Instructions for AI agents
 ├── after-install.md         # Post-install guide
+├── cliff.toml               # git-cliff config (EN)
+├── cliff-ru.toml            # git-cliff config (RU)
 ├── README.md                # Russian version
 ├── docs/
 │   └── webhook.md           # Webhook architecture (Russian)
