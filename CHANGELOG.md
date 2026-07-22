@@ -2,6 +2,30 @@
 
 Все заметные изменения в плагине hermes-max-integration.
 
+## [2.3.0] — 2026-07-22
+
+### Added
+
+- **Bilingual documentation policy** — all `*.md` files now follow RU-primary + EN-translation (`*_EN.md`) pattern:
+  - `AGENTS.md` + `AGENTS_EN.md`
+  - `CHANGELOG.md` + `CHANGELOG_EN.md`
+  - `README.md` + `README_EN.md`
+  - `docs/webhook.md` + `docs/webhook_EN.md`
+  - `after-install.md` + `after-install_EN.md`
+  - `skills/max-gateway/SKILL.md` + `skills/max-gateway/SKILL_EN.md`
+
+### Fixed
+
+- `send_buttons()` now wraps one button per row (full width) instead of 2 per row
+- Button text auto-truncated to MAX API limits (40 chars callback, 64 chars link)
+- `send_buttons()` — double-encoded JSON bug fix in `send_typing` (mentioned in v2.2.0)
+
+### Changed
+
+- `send_buttons()` — text duplicated in message body as fallback (mobile readability)
+- `send_buttons()` — auto-numbering (`1.`, `2.`, `3.`...) when 3+ buttons
+- `send_buttons()` — optional `label` field: full description in message body, short `text` on button
+
 ## [2.2.0] — 2026-07-22
 
 ### Добавлено
