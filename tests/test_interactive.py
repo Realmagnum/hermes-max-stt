@@ -128,6 +128,7 @@ class TestSendButtons:
 
     @pytest.mark.asyncio
     async def test_send_buttons_link_type(self):
+        """2 buttons → no numbering, one row each."""
         a = self._make_adapter()
         mock_resp = MagicMock()
         mock_resp.status_code = 200
@@ -141,17 +142,53 @@ class TestSendButtons:
             ],
         )
         assert result.success is True
-        body = a._http_client.post.call_args[1]["json"]
-        attach = body["attachments"][0]
-        assert attach["type"] == "inline_keyboard"
-        rows = attach["payload"]["buttons"]
+        call_args = a._http_client.post.call_args[1]
+        body = call_args["json"]
+
         # One button per row
+        rows = body["attachments"][0]["payload"]["buttons"]
         assert len(rows) == 2
         assert rows[0] == [{"type": "link", "text": "GitHub", "url": "https://github.com"}]
         assert rows[1] == [{"type": "link", "text": "Docs", "url": "https://hermes-agent.ai"}]
 
+        # Fallback text appended (bullet points for 1-2 buttons)
+        assert "• GitHub" in body["text"]
+        assert "• Docs" in body["text"]
+
+    @pytest.mark.asyncio
+    async def test_send_buttons_numbered(self):
+        """3+ buttons → auto-numbered 1. 2. 3. ..."""
+        a = self._make_adapter()
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"message": {"body": {"mid": "m"}}}
+        a._http_client.post = AsyncMock(return_value=mock_resp)
+        result = await a.send_buttons(
+            chat_id="user:1", text="Pick:",
+            buttons=[
+                {"type": "callback", "text": "First", "payload": "1"},
+                {"type": "callback", "text": "Second", "payload": "2"},
+                {"type": "callback", "text": "Third", "payload": "3"},
+            ],
+        )
+        assert result.success is True
+        body = a._http_client.post.call_args[1]["json"]
+        rows = body["attachments"][0]["payload"]["buttons"]
+
+        # 3 buttons → 3 rows, one each, numbered
+        assert len(rows) == 3
+        assert rows[0][0]["text"] == "1. First"
+        assert rows[1][0]["text"] == "2. Second"
+        assert rows[2][0]["text"] == "3. Third"
+
+        # Fallback with numbers
+        assert "1. First" in body["text"]
+        assert "2. Second" in body["text"]
+        assert "3. Third" in body["text"]
+
     @pytest.mark.asyncio
     async def test_send_buttons_mixed_types(self):
+        """Callback + link + request_contact in one call."""
         a = self._make_adapter()
         mock_resp = MagicMock()
         mock_resp.status_code = 200
@@ -166,10 +203,18 @@ class TestSendButtons:
             ],
         )
         assert result.success is True
-        rows = a._http_client.post.call_args[1]["json"]["attachments"][0]["payload"]["buttons"]
-        # 3 buttons → 3 rows, one button each
+        body = a._http_client.post.call_args[1]["json"]
+        rows = body["attachments"][0]["payload"]["buttons"]
+
+        # 3 buttons → 3 rows, one each, numbered
         assert len(rows) == 3
         assert all(len(row) == 1 for row in rows)
+        assert rows[0][0]["text"] == "1. Site"
+        assert rows[1][0]["text"] == "2. Ok"
+
+        # Fallback with numbers
+        assert "1. Site" in body["text"]
+        assert "3. Contact" in body["text"]
 
     @pytest.mark.asyncio
     async def test_send_buttons_max_10(self):
@@ -178,11 +223,19 @@ class TestSendButtons:
         mock_resp.status_code = 200
         mock_resp.json.return_value = {"message": {"body": {"mid": "m"}}}
         a._http_client.post = AsyncMock(return_value=mock_resp)
-        many = [{"type": "callback", "text": f"B{i}", "payload": str(i)} for i in range(15)]
+        many = [{"type": "callback", "text": f"Btn {i}", "payload": str(i)} for i in range(15)]
         result = await a.send_buttons("user:1", "Max:", many)
         assert result.success is True
-        rows = a._http_client.post.call_args[1]["json"]["attachments"][0]["payload"]["buttons"]
+        body = a._http_client.post.call_args[1]["json"]
+        rows = body["attachments"][0]["payload"]["buttons"]
+
+        # Only 10 buttons, each numbered
         assert sum(len(r) for r in rows) == 10
+        assert rows[0][0]["text"] == "1. Btn 0"
+
+        # Fallback text with numbers
+        assert "10. Btn 9" in body["text"]
+        assert "Btn 10" not in body["text"]  # 11th not included
 
     @pytest.mark.asyncio
     async def test_send_buttons_no_client(self):

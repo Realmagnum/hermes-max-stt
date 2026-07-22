@@ -2024,6 +2024,13 @@ class MaxAdapter(BasePlatformAdapter):
           - request_contact → {"type": "request_contact", "text": "..."}
           - request_geo_location → {"type": "request_geo_location", "text": "..."}
 
+        Features:
+        - One button per row (full width)
+        - Buttons auto-numbered when 3+
+        - Button text duplicated in the message body as fallback
+          (MAX mobile may truncate button text visually; the fallback
+           ensures the user always sees the full content)
+
         Example:
             await adapter.send_buttons(
                 chat_id="chat:123",
@@ -2034,10 +2041,40 @@ class MaxAdapter(BasePlatformAdapter):
                 ],
             )
         """
-        # One button per row — each button gets full width
-        keyboard = [[btn] for btn in buttons[:10]]
+        # Number buttons if 3+ for clarity
+        numbered = len(buttons) >= 3
 
-        return await self._post_interactive(chat_id, text, keyboard, reply_to=reply_to)
+        # Build keyboard (one button per row)
+        limited = buttons[:10]
+        keyboard: List[List[Dict[str, str]]] = []
+        for i, btn in enumerate(limited, 1):
+            b = dict(btn)
+            if numbered:
+                prefix = f"{i}. "
+                if not b.get("text", "").startswith(prefix):
+                    b["text"] = f"{prefix}{b['text']}"
+            keyboard.append([b])
+
+        # Append button text as fallback (MAX mobile may clip button labels)
+        fallback_lines: List[str] = []
+        for i, btn in enumerate(limited, 1):
+            label = btn.get("text", "")
+            if numbered:
+                fallback_lines.append(f"{i}. {label}")
+            else:
+                fallback_lines.append(f"• {label}")
+        fallback_text = "\n".join(fallback_lines)
+
+        # Only append fallback if there are actual buttons listed
+        full_text = text
+        if fallback_lines:
+            full_text = f"{text}\n\n{fallback_text}"
+
+        # Trim to MAX limit
+        if len(full_text) > MAX_MESSAGE_LENGTH - 200:
+            full_text = full_text[:MAX_MESSAGE_LENGTH - 200]
+
+        return await self._post_interactive(chat_id, full_text, keyboard, reply_to=reply_to)
 
     async def send_exec_approval(
         self,
