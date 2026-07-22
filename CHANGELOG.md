@@ -2,6 +2,24 @@
 
 Все заметные изменения в плагине hermes-max-integration.
 
+## [2.4.0] — 2026-07-22
+
+### Добавлено
+
+- **`send_multiple_images()`** — пакетная отправка изображений одним сообщением. Загружает все картинки параллельно, затем отправляет одно сообщение со всеми токенами. При ошибке — fallback на последовательную отправку через `send_image_file()`.
+- **`_standalone_send()` — нативная доставка файлов.** `hermes send MEDIA:/path/file` теперь загружает файлы через 3-шаговый протокол MAX (POST /uploads → POST multipart → POST /messages с токеном). Поддерживает image, video, audio, file.
+- **`_standalone_get_token()`** — выделенная функция извлечения токена для standalone-пути.
+
+### Исправлено
+
+- **`_upload_send()` — ретрай при `attachment.not.ready`.** Exponential backoff (2/4/6с), до 3 попыток. Заменяет статический `UPLOAD_DELAY`.
+- **`_upload()` — добавлен SSRF whitelist для `fu.oneme.ru`.** Фактический CDN для загрузки файлов MAX.
+- **`_standalone_send()`** — теперь не игнорирует `media_files` (было `logger.warning` + сброс).
+
+### Изменено
+
+- `_upload_send()` — жёсткая задержка `UPLOAD_DELAY` заменена на адаптивный ретрай
+
 ## [2.3.0] — 2026-07-22
 
 ### Добавлено

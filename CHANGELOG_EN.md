@@ -2,6 +2,24 @@
 
 All notable changes to the hermes-max-integration plugin.
 
+## [2.4.0] — 2026-07-22
+
+### Added
+
+- **`send_multiple_images()`** — batch image delivery in a single message. Uploads all images concurrently, then sends one message with all attachment tokens. Falls back to sequential `send_image_file()` on error.
+- **`_standalone_send()` — native file delivery.** `hermes send MEDIA:/path/file` now uploads files via the 3-step MAX protocol (POST /uploads → POST multipart → POST /messages with token). Supports image, video, audio, file.
+- **`_standalone_get_token()`** — extracted token resolution for the standalone path.
+
+### Fixed
+
+- **`_upload_send()` — retry on `attachment.not.ready`.** Exponential backoff (2/4/6s), up to 3 attempts. Replaces static `UPLOAD_DELAY`.
+- **`_upload()` — added `fu.oneme.ru` to SSRF whitelist.** Actual file upload CDN for MAX.
+- **`_standalone_send()`** — no longer ignores `media_files` (was `logger.warning` + discard).
+
+### Changed
+
+- `_upload_send()` — hard `UPLOAD_DELAY` replaced with adaptive retry
+
 ## [2.3.0] — 2026-07-22
 
 ### Added

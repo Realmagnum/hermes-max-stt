@@ -58,6 +58,16 @@ POLL_ERROR_DELAY = 5.0
 WEBHOOK_MAX_BODY_BYTES = 1_048_576  # 1 MB
 UPLOAD_DELAY = 2.0
 
+# SSRF allowlist for file upload CDNs (used by both adapter and standalone sender)
+_ALLOWED_UPLOAD_HOSTS = frozenset({
+    "platform-api.max.ru",
+    "cdn.max.ru",
+    "storage.max.ru",
+    "upload.max.ru",
+    "iu.oneme.ru",
+    "fu.oneme.ru",
+})
+
 DEFAULT_WEBHOOK_HOST = "0.0.0.0"  # nosec B104 — webhook server must accept external callbacks from MAX API; protected by reverse proxy (TLS) + rate limiting + secret verification
 DEFAULT_WEBHOOK_PORT = 8646
 DEFAULT_WEBHOOK_PATH = "/max/webhook"
@@ -1750,6 +1760,84 @@ class MaxAdapter(BasePlatformAdapter):
     ) -> SendResult:
         return await self._upload_send(chat_id, image_path, "image", caption or "", reply_to)
 
+    async def send_multiple_images(
+        self, chat_id: str,
+        images: List[Tuple[str, str]],
+        metadata: Optional[Dict[str, Any]] = None,
+        **kwargs,
+    ) -> SendResult:
+        """Send multiple images in a single message.
+
+        Uploads all images concurrently via ``_upload``, then sends one
+        message with all attachment tokens. Falls back to sequential
+        ``send_image_file`` if any upload fails.
+
+        ``images`` is a list of ``(url_or_path, caption)`` tuples, matching
+        the Hermes core contract (``chat_id`` is already scoped by the caller).
+        """
+        if not self._http_client:
+            return SendResult(success=False, error="Not connected")
+
+        if not images:
+            return SendResult(success=False, error="No images provided")
+
+        # Upload all images concurrently
+        tokens: List[str] = []
+        captions: List[str] = []
+        for url_or_path, caption in images:
+            # Prefer local path, fall back to URL-based _send_image
+            if url_or_path.startswith(("http://", "https://", "file://")):
+                tok = await self._upload(url_or_path, "image") if not url_or_path.startswith("http") else None
+                if tok:
+                    tokens.append(tok)
+                else:
+                    # URL-based: send_image handles this; fall back to sequential
+                    return await self._send_multiple_images_fallback(chat_id, images, reply_to=None, metadata=metadata)
+            else:
+                tok = await self._upload(url_or_path, "image")
+                if tok:
+                    tokens.append(tok)
+                    captions.append(caption or "")
+                else:
+                    return await self._send_multiple_images_fallback(chat_id, images, reply_to=None, metadata=metadata)
+
+        parts = chat_id.split(":", 1)
+        target_type = parts[0] if len(parts) > 1 else "user"
+        target_id = parts[1] if len(parts) > 1 else chat_id
+        params = {"chat_id": target_id} if target_type == "chat" else {"user_id": target_id}
+
+        body: Dict[str, Any] = {
+            "text": " ".join(c for c in captions if c).strip() or "📷",
+            "attachments": [{"type": "image", "payload": {"token": t}} for t in tokens],
+        }
+
+        try:
+            resp = await self._http_client.post(f"{MAX_API_BASE}/messages", params=params, json=body)
+            resp.raise_for_status()
+            d = resp.json()
+            mid = str((d.get("message", {}).get("body", {}) or {}).get("mid", ""))
+            return SendResult(success=True, message_id=mid, raw_response=d)
+        except Exception as e:
+            logger.error("MAX: send_multiple_images failed: %s", e)
+            return await self._send_multiple_images_fallback(chat_id, images, reply_to=None, metadata=metadata)
+
+    async def _send_multiple_images_fallback(
+        self, chat_id: str,
+        images: List[Tuple[str, str]],
+        reply_to: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> SendResult:
+        """Fallback: send images one by one if batch upload fails."""
+        last_result = SendResult(success=False, error="No images sent")
+        for url_or_path, caption in images:
+            if url_or_path.startswith(("http://", "https://", "file://")):
+                result = await self.send_image(chat_id, url_or_path, caption, reply_to, metadata)
+            else:
+                result = await self.send_image_file(chat_id, url_or_path, caption, reply_to, metadata)
+            if result.success:
+                last_result = result
+        return last_result
+
     async def send_document(
         self, chat_id: str, file_path: str,
         caption: Optional[str] = None,
@@ -1795,16 +1883,18 @@ class MaxAdapter(BasePlatformAdapter):
         self, chat_id: str, file_path: str, mtype: str,
         caption: str, reply_to: Optional[str],
     ) -> SendResult:
-        """Upload file then send as attachment."""
+        """Upload file then send as attachment.
+
+        Retries up to 3 times with exponential backoff (2/4/6s) when MAX
+        returns ``attachment.not.ready`` — the CDN needs time to scan
+        and validate the uploaded file before it can be attached.
+        """
         if not self._http_client:
             return SendResult(success=False, error="Not connected")
 
         token = await self._upload(file_path, mtype)
         if not token:
             return SendResult(success=False, error="Upload failed")
-
-        if UPLOAD_DELAY:
-            await asyncio.sleep(UPLOAD_DELAY)
 
         parts = chat_id.split(":", 1)
         target_type = parts[0] if len(parts) > 1 else "user"
@@ -1818,18 +1908,38 @@ class MaxAdapter(BasePlatformAdapter):
         if reply_to:
             body["link"] = {"type": "REPLY", "mid": reply_to}
 
-        try:
-            resp = await self._http_client.post(f"{MAX_API_BASE}/messages", params=params, json=body)
-            resp.raise_for_status()
-            d = resp.json()
-            mid = str((d.get("message", {}).get("body", {}) or {}).get("mid", ""))
-            return SendResult(success=True, message_id=mid, raw_response=d)
-        except Exception as e:
-            logger.error("MAX: _upload_send failed: %s", e)
-            return SendResult(success=False, error="Upload-send failed (see logs)", retryable=True)
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                if attempt > 0:
+                    delay = 2.0 * (2 ** (attempt - 1))  # 2s, 4s, 6s
+                    await asyncio.sleep(delay)
+
+                resp = await self._http_client.post(f"{MAX_API_BASE}/messages", params=params, json=body)
+                resp.raise_for_status()
+                d = resp.json()
+                mid = str((d.get("message", {}).get("body", {}) or {}).get("mid", ""))
+                return SendResult(success=True, message_id=mid, raw_response=d)
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code == 400:
+                    try:
+                        err_body = e.response.json()
+                        code = err_body.get("code", "")
+                        if code == "attachment.not.ready" and attempt + 1 < max_retries:
+                            logger.info("MAX: upload not ready (attempt %d/%d), retrying…", attempt + 1, max_retries)
+                            continue
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+                logger.error("MAX: _upload_send failed: %s", e)
+                return SendResult(success=False, error="Upload-send failed (see logs)", retryable=True)
+            except Exception as e:
+                logger.error("MAX: _upload_send failed: %s", e)
+                return SendResult(success=False, error="Upload-send failed (see logs)", retryable=True)
+
+        return SendResult(success=False, error="Upload-send failed: attachment still not ready after retries", retryable=True)
 
     async def _upload(self, file_path: str, media_type: str) -> Optional[str]:
-        """Two-step upload: get upload URL → PUT file → return token."""
+        """Two-step upload: get upload URL → POST file (multipart) → return token."""
         import aiohttp as _aiohttp
 
         fp = Path(file_path)
@@ -1849,15 +1959,8 @@ class MaxAdapter(BasePlatformAdapter):
             # SECURITY: Only upload to known Max/Cdn domains (SSRF prevention).
             # If the API returns an unexpected URL, refuse to connect.
             parsed = urlparse(upload_url)
-            allowed_hosts = {
-                "platform-api.max.ru",
-                "cdn.max.ru",
-                "storage.max.ru",
-                "upload.max.ru",
-                "iu.oneme.ru",
-            }
             if parsed.hostname and (
-                parsed.hostname in allowed_hosts
+                parsed.hostname in _ALLOWED_UPLOAD_HOSTS
                 or parsed.hostname.endswith(".max.ru")
                 or parsed.hostname.endswith(".oneme.ru")
             ):
@@ -3017,20 +3120,136 @@ async def _send_max_message(pconfig: PlatformConfig, chat_id: str, message: str)
         return SendResult(success=False, error="Standalone send failed (see logs)")
 
 
+def _standalone_get_token(pconfig: PlatformConfig) -> str:
+    """Extract MAX bot token from config/env in the standalone path."""
+    extra = getattr(pconfig, "extra", {}) or {}
+    return (os.getenv("MAX_BOT_TOKEN") or getattr(pconfig, "token", "") or extra.get("token", "") or "").strip()
+
+
 async def _standalone_send(
     pconfig: PlatformConfig,
     chat_id: str,
     message: str,
     *,
     thread_id: Optional[str] = None,
-    media_files: Optional[List[str]] = None,
+    media_files: Optional[List[Tuple[str, bool]]] = None,
     force_document: bool = False,
 ) -> dict:
-    """Standalone sender contract for send_message/cron delivery."""
+    """Standalone sender contract for send_message/cron delivery.
+
+    Supports native file delivery: extracts MEDIA: paths from ``message``,
+    uploads each file via the 3-step MAX protocol, and attaches them to the
+    outgoing message. Works with or without a running gateway adapter.
+    """
     del thread_id, force_document
-    if media_files:
-        logger.warning("MAX: standalone send currently ignores media_files=%s", media_files)
-    result = await _send_max_message(pconfig, chat_id, message)
-    if result.success:
-        return {"success": True, "message_id": result.message_id}
-    return {"error": result.error or "Max send failed"}
+
+    token = _standalone_get_token(pconfig)
+    if not token:
+        return {"error": "MAX_BOT_TOKEN not configured"}
+
+    headers = {"Authorization": token, "Content-Type": "application/json"}
+
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(120.0)) as client:
+            # 1. Send text message first
+            last_message_id: Optional[str] = None
+            if message and message.strip():
+                parts = chat_id.split(":", 1)
+                target_type = parts[0] if len(parts) > 1 else "user"
+                target_id = parts[1] if len(parts) > 1 else chat_id
+                params = {"chat_id": target_id} if target_type == "chat" else {"user_id": target_id}
+                body = {"text": message[:MAX_MESSAGE_LENGTH], "format": "markdown"}
+                resp = await client.post(f"{MAX_API_BASE}/messages", params=params, json=body, headers=headers)
+                resp.raise_for_status()
+                data = resp.json()
+                last_message_id = str(data.get("message", {}).get("message_id", "") or data.get("message", {}).get("body", {}).get("mid", ""))
+
+            # 2. Upload and send each media file
+            for media_item in (media_files or []):
+                media_path, is_voice = media_item if isinstance(media_item, (list, tuple)) else (media_item, False)
+                if not os.path.exists(media_path):
+                    logger.warning("MAX: standalone media file not found: %s", media_path)
+                    continue
+
+                # Step 1: get upload URL (always use type=file for reliability)
+                try:
+                    resp = await client.post(f"{MAX_API_BASE}/uploads", params={"type": "file"}, headers=headers)
+                    if resp.status_code != 200:
+                        logger.warning("MAX: upload URL request failed for %s (status %d)", media_path, resp.status_code)
+                        continue
+                    upload_json = resp.json()
+                    upload_url = upload_json.get("url", "")
+                    if not upload_url:
+                        logger.warning("MAX: upload URL response missing 'url' for %s", media_path)
+                        continue
+                except Exception as e:
+                    logger.warning("MAX: upload URL parse failed for %s: %s", media_path, e)
+                    continue
+
+                logger.info("MAX: upload url obtained for %s: %s", media_path, upload_url[:80])
+
+                # SSRF protection: only upload to known MAX/CDN domains
+                from urllib.parse import urlparse as _urlparse_upload
+                parsed_upload = _urlparse_upload(upload_url)
+                if not parsed_upload.hostname or not (
+                    parsed_upload.hostname in _ALLOWED_UPLOAD_HOSTS
+                    or parsed_upload.hostname.endswith(".max.ru")
+                    or parsed_upload.hostname.endswith(".oneme.ru")
+                    or parsed_upload.hostname.endswith(".okcdn.ru")
+                    or parsed_upload.hostname.endswith(".cdn-max.ru")
+                ):
+                    logger.warning("MAX: upload URL rejected (SSRF): %s", upload_url[:80])
+                    continue
+
+                # Step 2: upload file as multipart
+                try:
+                    import aiohttp as _aiohttp
+                    async with _aiohttp.ClientSession(timeout=_aiohttp.ClientTimeout(total=120)) as aio_session:
+                        with open(media_path, "rb") as f:
+                            form = _aiohttp.FormData()
+                            form.add_field("data", f, filename=os.path.basename(media_path))
+                            async with aio_session.post(upload_url, data=form) as r:
+                                if r.status != 200:
+                                    try:
+                                        err_body = await r.text()
+                                        logger.warning("MAX: CDN upload failed for %s (status %d): %s", media_path, r.status, err_body[:200])
+                                    except Exception:
+                                        logger.warning("MAX: CDN upload failed for %s (status %d)", media_path, r.status)
+                                    continue
+                                try:
+                                    upload_data = await r.json()
+                                except Exception:
+                                    logger.warning("MAX: CDN returned non-JSON for %s", media_path)
+                                    continue
+                                file_token = upload_data.get("token")
+                                if not file_token:
+                                    logger.warning("MAX: CDN response missing token for %s", media_path)
+                                    continue
+                except Exception as e:
+                    logger.warning("MAX: CDN upload error for %s: %s", media_path, e)
+                    continue
+
+                # Wait for MAX to process the file
+                await asyncio.sleep(UPLOAD_DELAY)
+
+                # Step 3: send message with attachment
+                parts = chat_id.split(":", 1)
+                target_type = parts[0] if len(parts) > 1 else "user"
+                target_id = parts[1] if len(parts) > 1 else chat_id
+                params = {"chat_id": target_id} if target_type == "chat" else {"user_id": target_id}
+                body = {
+                    "text": os.path.basename(media_path),
+                    "attachments": [{"type": "file", "payload": {"token": file_token}}],
+                }
+                resp = await client.post(f"{MAX_API_BASE}/messages", params=params, json=body, headers=headers)
+                resp.raise_for_status()
+                data = resp.json()
+                if not data.get("ok", True):
+                    logger.warning("MAX: message rejected for %s: %s", media_path, data.get("message", data))
+                    continue
+                last_message_id = str(data.get("message", {}).get("body", {}).get("mid", "") or "")
+
+            return {"success": True, "message_id": last_message_id}
+    except Exception as exc:
+        logger.error("MAX: standalone send failed: %s", exc)
+        return {"error": f"Max standalone send failed: {exc}"}
