@@ -145,8 +145,10 @@ class TestSendButtons:
         attach = body["attachments"][0]
         assert attach["type"] == "inline_keyboard"
         rows = attach["payload"]["buttons"]
-        assert len(rows) == 1 and len(rows[0]) == 2
-        assert rows[0][0]["type"] == "link" and rows[0][0]["url"] == "https://github.com"
+        # One button per row
+        assert len(rows) == 2
+        assert rows[0] == [{"type": "link", "text": "GitHub", "url": "https://github.com"}]
+        assert rows[1] == [{"type": "link", "text": "Docs", "url": "https://hermes-agent.ai"}]
 
     @pytest.mark.asyncio
     async def test_send_buttons_mixed_types(self):
@@ -165,7 +167,9 @@ class TestSendButtons:
         )
         assert result.success is True
         rows = a._http_client.post.call_args[1]["json"]["attachments"][0]["payload"]["buttons"]
-        assert len(rows) == 2 and len(rows[0]) == 2 and len(rows[1]) == 1
+        # 3 buttons → 3 rows, one button each
+        assert len(rows) == 3
+        assert all(len(row) == 1 for row in rows)
 
     @pytest.mark.asyncio
     async def test_send_buttons_max_10(self):

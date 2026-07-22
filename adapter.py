@@ -2034,16 +2034,8 @@ class MaxAdapter(BasePlatformAdapter):
                 ],
             )
         """
-        # Wrap in rows (2 per row for compact layout)
-        keyboard: List[List[Dict[str, str]]] = []
-        row: List[Dict[str, str]] = []
-        for btn in buttons[:10]:  # MAX limit ~10 buttons per message
-            row.append(btn)
-            if len(row) >= 2:
-                keyboard.append(row)
-                row = []
-        if row:
-            keyboard.append(row)
+        # One button per row — each button gets full width
+        keyboard = [[btn] for btn in buttons[:10]]
 
         return await self._post_interactive(chat_id, text, keyboard, reply_to=reply_to)
 
