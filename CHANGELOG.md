@@ -13,7 +13,12 @@ All notable changes to the hermes-max-integration plugin.
   - Configurable via `MAX_CROSS_SESSION=true|false` (default: true)
   - Requires `allow_admin_from` in config.yaml for the `max` platform (adds the user's MAX ID) to make core `--all` flag work
 - **`send_action()`** — extended chat actions: `typing`, `typing_off`, `sending_photo`, `sending_video`, `sending_audio`, `sending_file`, `read`. Replaces the old `send_typing()` which now delegates to `send_action()`.
-- **`send_buttons()`** — public method for sending messages with inline buttons of ANY type: `callback`, `link`, `message`, `request_contact`, `request_geo_location`. Auto-wraps into rows of 2.
+- **`send_buttons()`** — public method for sending messages with inline buttons of ANY type: `callback`, `link`, `message`, `request_contact`, `request_geo_location`.
+  - One button per row (full width)
+  - Button text auto-truncated to MAX API limits (40 chars callback, 64 chars link)
+  - Auto-numbering (`1.`, `2.`, `3.`...) when 3+ buttons
+  - Optional `label` field: full description text in message body (never truncated)
+  - Fallback text with button content duplicated in message body
 - **`plugin.yaml`** — added `MAX_CROSS_SESSION` optional env var
 
 ### Fixed
