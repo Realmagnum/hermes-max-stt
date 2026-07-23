@@ -22,6 +22,7 @@ postprocessors = [
   { pattern = '<!-- \d+ -->⚡ Performance', replace = "### Производительность" },
   { pattern = '<!-- \d+ -->✅ Tests', replace = "### Тесты" },
   { pattern = '<!-- \d+ -->🔧 Chores', replace = "### Служебное" },
+  { pattern = '<!-- \d+ -->💼 Other', replace = "### Прочее" },
 ]
 trim = true
 

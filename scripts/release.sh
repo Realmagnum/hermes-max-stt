@@ -46,11 +46,11 @@ git tag -a "$VERSION" -m "Release $VERSION"
 
 # Генерация CHANGELOG_EN.md
 echo "📝 Generating CHANGELOG_EN.md..."
-git cliff --config cliff.toml --tag "$VERSION" --prepend CHANGELOG_EN.md
+git cliff --config cliff.toml --tag "$VERSION" -l --prepend CHANGELOG_EN.md
 
 # Генерация CHANGELOG.md (RU)
 echo "📝 Generating CHANGELOG.md..."
-git cliff --config cliff-ru.toml --tag "$VERSION" --prepend CHANGELOG.md
+git cliff --config cliff-ru.toml --tag "$VERSION" -l --prepend CHANGELOG.md
 
 # Показать что изменилось
 echo ""
