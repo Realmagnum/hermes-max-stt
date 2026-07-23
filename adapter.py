@@ -3329,8 +3329,12 @@ async def _standalone_send(
                         resp = await client.post(f"{MAX_API_BASE}/messages", params=params, json=body, headers=headers)
                         if resp.status_code in (200, 201):
                             data = resp.json()
-                            if data.get("ok", True):
-                                last_message_id = str(data.get("message", {}).get("body", {}).get("mid", "") or "")
+                            if data.get("ok", True) or "message" in data:
+                                last_message_id = str(
+                                    data.get("message", {}).get("body", {}).get("mid", "")
+                                    or data.get("message", {}).get("message_id", "")
+                                    or ""
+                                )
                                 _sent_ok = True
                                 break
                         elif resp.status_code == 400:
