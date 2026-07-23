@@ -201,6 +201,21 @@ curl -X DELETE "https://platform-api.max.ru/subscriptions?url=<URL>" \
 
 Check active subscriptions: `GET /subscriptions` with the same token.
 
+### 💬 Reasoning display (model thinking)
+
+When using reasoning models (DeepSeek R1, Claude Opus, Gemini Thinking, etc.), the reasoning block (`💭 **Reasoning:**`) is automatically prepended to the final response.
+
+To ensure reasoning appears as a **fresh separate message** (rather than an edit of the last streamed draft), add to `~/.hermes/config.yaml`:
+
+```yaml
+display:
+  platforms:
+    max:
+      fresh_final_after_seconds: 10
+```
+
+This tells the gateway to deliver the final answer as a new message if streaming lasted longer than 10 seconds — the reasoning block is included in full. Without this setting, reasoning is prepended to the last streaming edit and may go unnoticed.
+
 ## Configuration Reference
 
 | Env Variable | Required | Default | Description |
