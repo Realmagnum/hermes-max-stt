@@ -458,10 +458,12 @@ class MaxAdapter(BasePlatformAdapter):
                     errs = 0
                 else:
                     errs += 1
+                    logger.warning("MAX: poll HTTP %s (attempt %d)", resp.status_code, errs)
             except asyncio.CancelledError:
                 break
-            except Exception:
+            except Exception as e:
                 errs += 1
+                logger.warning("MAX: poll error (attempt %d): %s: %s", errs, type(e).__name__, e)
                 await asyncio.sleep(min(POLL_ERROR_DELAY * (2 ** min(errs - 1, 4)), 60))
 
     # ═════════════════════════════════════════════════════════════════════
