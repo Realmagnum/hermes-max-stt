@@ -156,6 +156,54 @@ echo 'MAX_TABLE_AS_IMAGE=true' >> ~/.hermes/.env
 hermes gateway restart
 ```
 
+## Режимы подключения
+
+Плагин поддерживает два режима получения сообщений от MAX API. Режим определяется единственной переменной — **`MAX_WEBHOOK_URL`**:
+
+| `MAX_WEBHOOK_URL` | Режим | Механизм |
+|---|---|---|
+| Не задан (пуст) | **Long polling** (по умолчанию) | Цикличный `GET /updates?timeout=5&marker=...` |
+| Задан HTTPS URL | **Webhook** | aiohttp сервер на порту 8646, регистрация `POST /subscriptions` |
+
+Выбор происходит в коде `connect()` одной строкой: `self._use_webhook = bool(self._webhook_url)`.
+
+### Переключение Long polling → Webhook
+
+```bash
+# 1. Добавить в ~/.hermes/.env
+MAX_WEBHOOK_URL=https://your-domain.com/max/webhook
+MAX_WEBHOOK_SECRET=my-secret
+
+# 2. Перезапустить
+sudo systemctl restart hermes-gateway
+```
+
+При старте: `_start_webhook()` → открывает `0.0.0.0:8646` → регистрирует подписку в MAX API → сообщения приходят на webhook URL.
+
+### Переключение Webhook → Long polling
+
+```bash
+# 1. Удалить или закомментировать MAX_WEBHOOK_URL (и MAX_WEBHOOK_SECRET)
+# MAX_WEBHOOK_URL=...
+# MAX_WEBHOOK_SECRET=...
+
+# 2. Перезапустить
+sudo systemctl restart hermes-gateway
+```
+
+При старте: `_start_polling()` → проверяет `GET /subscriptions`, **автоматически удаляет** старые webhook-подписки (иначе MAX продолжал бы слать сообщения на несуществующий URL) → запускает `_poll_loop`.
+
+### 🚨 Важно
+
+Если webhook-подписка была зарегистрирована **вручную** (curl'ом, не через плагин), автоочистка может её не найти. В таком случае удалите вручную:
+
+```bash
+curl -X DELETE "https://platform-api.max.ru/subscriptions?url=<URL>" \
+  -H "Authorization: $MAX_BOT_TOKEN"
+```
+
+Проверить активные подписки: `GET /subscriptions` с тем же токеном.
+
 ## Справочник конфигурации
 
 | Переменная | Обязат. | По умолч. | Описание |

@@ -52,6 +52,33 @@ MAX_WEBHOOK_PATH=/max/webhook          # URL-путь для приёма кол
 
 Без `MAX_WEBHOOK_URL` адаптер работает в режиме **long polling** — сам ходит в MAX API каждые 5 секунд.
 
+### Переключение между режимами
+
+Переключение сводится к установке/удалению `MAX_WEBHOOK_URL` и перезапуску gateway:
+
+```bash
+# Long polling → Webhook
+echo 'MAX_WEBHOOK_URL=https://max.example.com/max/webhook' >> ~/.hermes/.env
+sudo systemctl restart hermes-gateway
+
+# Webhook → Long polling
+# Закомментировать или удалить MAX_WEBHOOK_URL из .env
+sudo systemctl restart hermes-gateway
+```
+
+#### 🚨 Ловушка: висящие подписки
+
+При старте в режиме long polling плагин **автоматически** проверяет `GET /subscriptions` и удаляет все активные webhook-подписки. Без этого MAX API продолжал бы слать сообщения на старый (возможно, несуществующий) URL, а polling получал бы пустые ответы.
+
+Однако если подписка была зарегистрирована **вручную** (curl'ом, не через плагин), автоочистка может её не найти (например, если URL в MAX API записан с другим query-параметром). В таком случае удалите вручную:
+
+```bash
+curl -X DELETE "https://platform-api.max.ru/subscriptions?url=<URL>" \
+  -H "Authorization: $MAX_BOT_TOKEN"
+```
+
+Проверить активные подписки: `GET /subscriptions` с тем же токеном.
+
 ### Настройка reverse proxy
 
 Вебхук MAX API стучится **только на 443 порт** по HTTPS. На практике это означает, что перед адаптером нужен reverse proxy (Caddy, Traefik, Nginx, Cloudflare Tunnel), который:

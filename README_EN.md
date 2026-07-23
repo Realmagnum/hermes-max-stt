@@ -153,6 +153,54 @@ echo 'MAX_TABLE_AS_IMAGE=true' >> ~/.hermes/.env
 hermes gateway restart
 ```
 
+## Connection Modes
+
+The plugin supports two modes for receiving messages from MAX API. The mode is determined by a single variable — **`MAX_WEBHOOK_URL`**:
+
+| `MAX_WEBHOOK_URL` | Mode | Mechanism |
+|---|---|---|
+| Not set (empty) | **Long polling** (default) | Cyclic `GET /updates?timeout=5&marker=...` |
+| HTTPS URL set | **Webhook** | aiohttp server on port 8646, `POST /subscriptions` registration |
+
+The choice happens in `connect()` with one line: `self._use_webhook = bool(self._webhook_url)`.
+
+### Switching Long polling → Webhook
+
+```bash
+# 1. Add to ~/.hermes/.env
+MAX_WEBHOOK_URL=https://your-domain.com/max/webhook
+MAX_WEBHOOK_SECRET=my-secret
+
+# 2. Restart
+sudo systemctl restart hermes-gateway
+```
+
+On startup: `_start_webhook()` → opens `0.0.0.0:8646` → registers a subscription in MAX API → messages arrive via webhook.
+
+### Switching Webhook → Long polling
+
+```bash
+# 1. Remove or comment out MAX_WEBHOOK_URL (and MAX_WEBHOOK_SECRET)
+# MAX_WEBHOOK_URL=...
+# MAX_WEBHOOK_SECRET=...
+
+# 2. Restart
+sudo systemctl restart hermes-gateway
+```
+
+On startup: `_start_polling()` → checks `GET /subscriptions`, **automatically removes** stale webhook subscriptions (otherwise MAX would keep sending to a dead URL) → starts `_poll_loop`.
+
+### 🚨 Important
+
+If a webhook subscription was registered **manually** (via curl, not through the plugin), auto-cleanup may not find it. In that case, delete it manually:
+
+```bash
+curl -X DELETE "https://platform-api.max.ru/subscriptions?url=<URL>" \
+  -H "Authorization: $MAX_BOT_TOKEN"
+```
+
+Check active subscriptions: `GET /subscriptions` with the same token.
+
 ## Configuration Reference
 
 | Env Variable | Required | Default | Description |
