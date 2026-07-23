@@ -216,6 +216,22 @@ display:
 
 This tells the gateway to deliver the final answer as a new message if streaming lasted longer than 10 seconds — the reasoning block is included in full. Without this setting, reasoning is prepended to the last streaming edit and may go unnoticed.
 
+### 🔍 Diagnostics
+
+For a quick health check, run the diagnostics script (located in `scripts/diagnose.sh`):
+
+```bash
+cd ~/.hermes/plugins/max-platform
+
+# Basic check (no test message)
+./scripts/diagnose.sh
+
+# Full check with E2E send (delivers a message to the home channel)
+./scripts/diagnose.sh --send
+```
+
+The script checks 8 items: plugin status, MAX connection, webhook server, health endpoint, subscription, token, E2E send, and reasoning config. Exit code: `0` — all good, `1` — issues found.
+
 ## Configuration Reference
 
 | Env Variable | Required | Default | Description |
