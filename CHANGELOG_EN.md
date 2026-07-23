@@ -3,33 +3,15 @@
 All notable changes to the hermes-max-integration plugin.
 ## [2.6.0] — 2026-07-23
 
-
 ### 🐛 Bug Fixes
 
-
-- Extract message_id from body.mid in send() — fixes progress message duplication
-
-- Add logging to MAX polling error handler
-
-- Send callback acknowledgments directly via MAX API instead of MessageEvent
-
-
-### 💼 Other
-
-
-- Merge branch 'feature/callback-message-event-fix'
-
+- **Callback acknowledgment delivery.** Exec-approval, slash-confirm, and clarify callbacks no longer create a `MessageEvent` that the AI sees as a new user message in the next turn — preventing the AI from responding with full Reasoning to the acknowledgment. The acknowledgment is now sent directly via the MAX API as a short message with no AI generation.
+- **message_id extraction.** `send()` now correctly parses `body.mid` as a fallback, fixing progress message duplication.
+- **Polling error logging.** Added `logger.warning()` to polling exception handlers — errors are now visible in logs instead of being silently swallowed.
 
 ### 📚 Documentation
 
-
-- Update webhook docs with reverse proxy setup and nonlocal pitfall
-
-
-### ⚙️ Miscellaneous Tasks
-
-
-- Bump version to 2.6.0
+- Webhook docs updated with reverse proxy setup guide and `nonlocal` pitfall description.
 
 
 ## [2.5.0] — 2026-07-23
