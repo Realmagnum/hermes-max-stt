@@ -218,7 +218,7 @@ This tells the gateway to deliver the final answer as a new message if streaming
 
 ### 🔍 Diagnostics
 
-For a quick health check, run the diagnostics script (located in `scripts/diagnose.sh`):
+For a quick health check, run the diagnostics script (located in `scripts/diagnose.sh`). It auto-detects the current mode (webhook or long polling) and adapts the checks:
 
 ```bash
 cd ~/.hermes/plugins/max-platform
@@ -230,7 +230,7 @@ cd ~/.hermes/plugins/max-platform
 ./scripts/diagnose.sh --send
 ```
 
-The script checks 8 items: plugin status, MAX connection, webhook server, health endpoint, subscription, token, E2E send, and reasoning config. Exit code: `0` — all good, `1` — issues found.
+The script checks 8 items: plugin status, MAX connection, activity (polling or webhook), health/errors, subscriptions, token, E2E send, and reasoning config. Exit code: `0` — all good, `1` — issues found.
 
 ## Configuration Reference
 
